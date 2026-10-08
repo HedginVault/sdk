@@ -62,6 +62,10 @@ const outcome = await hedge.execute(
 
 The API key needs `send` plus each builder action it uses.
 
+To open a position, read the pool first with `getPool(vault, lbPair)` and choose
+`lowerBinId` and an exclusive `upperBinId` around its `activeBinId` (requires the app's
+`GET /dlmm/pools/{lbPair}` route, app PR #17).
+
 ## Safety
 
 Before signing, every transaction in a build must:

@@ -69,6 +69,14 @@ describe("createHedgeClient", () => {
     expect(fetch).toHaveBeenCalledWith("https://hedgin.xyz/api/external/v1/vaults", expect.anything());
   });
 
+  it("reads one pool's active bin with the vault scope", async () => {
+    const pool = { lbPair: "Pool1", tokenX: { mint: SOL, symbol: "SOL", decimals: 9 }, tokenY: { mint: USDC, symbol: "USDC", decimals: 6 }, binStep: 10, activeBinId: -5, activePrice: "150" };
+    const fetch = stubFetch(200, { vault: VAULT, data: pool });
+    const api = createHedgeClient({ baseUrl: "https://example.test", apiKey: "k", fetch });
+    expect(await api.getPool(VAULT, "Pool1")).toEqual(pool);
+    expect(fetch).toHaveBeenCalledWith(`https://example.test/api/external/v1/dlmm/pools/Pool1?vault=${VAULT}`, expect.anything());
+  });
+
   it("searches pools with the vault scope", async () => {
     const fetch = stubFetch(200, { vault: VAULT, data: { total: 0, page: 2, pages: 0, pools: [] } });
     const api = createHedgeClient({ baseUrl: "https://example.test", apiKey: "k", fetch });

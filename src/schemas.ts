@@ -87,6 +87,18 @@ export const PoolSearchSchema = z.object({
 });
 export type PoolSearchPage = z.infer<typeof PoolSearchSchema>;
 
+export const PoolInfoSchema = z.object({
+  lbPair: z.string(),
+  tokenX: TokenInfoSchema,
+  tokenY: TokenInfoSchema,
+  binStep: z.number().int().positive(),
+  /** The bin holding the current price; `dlmm/open` ranges are chosen around it. */
+  activeBinId: z.number().int(),
+  /** Token Y per token X. */
+  activePrice: z.string(),
+});
+export type PoolInfo = z.infer<typeof PoolInfoSchema>;
+
 export const vaultData = <T extends z.ZodTypeAny>(data: T) => z.object({ vault: z.string(), data });
 
 export const BuiltStepSchema = z

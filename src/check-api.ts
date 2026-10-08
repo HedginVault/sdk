@@ -10,6 +10,7 @@ import {
   BuildResponseSchema,
   ErrorBodySchema,
   HoldingsSchema,
+  PoolInfoSchema,
   PoolSearchSchema,
   QuoteSchema,
   StrategySchema,
@@ -39,6 +40,8 @@ export interface CheckResult {
 
 /** A check that cannot run with this key or this vault, which is not an API defect. */
 class Skip extends Error {}
+/** The checker itself went over the rate limit; rerun after a minute. */
+class RateLimited extends Error {}
 
 type Probe = (path: string, options?: { body?: Record<string, unknown>; authorization?: string | null }) => Promise<HttpResult>;
 
@@ -64,6 +67,7 @@ export function createProbe(options: { baseUrl: string; apiKey: string; fetch?: 
 const LEAK_PATTERNS = [/"logs"/, /"stack"/, /Program log:/, /\bat \/[\w/.-]+:\d+/, /node_modules/];
 
 function expectError(result: HttpResult, statuses: number[]): string {
+  if (result.status === 429 && !statuses.includes(429)) throw new RateLimited("429 rate limited; rerun in a minute");
   if (!statuses.includes(result.status)) {
     throw new Error(`expected HTTP ${statuses.join(" or ")}, got ${result.status} ${JSON.stringify(result.body)?.slice(0, 160)}`);
   }
@@ -76,6 +80,7 @@ function expectError(result: HttpResult, statuses: number[]): string {
 }
 
 function expectContract<T>(result: HttpResult, schema: z.ZodType<T>): T {
+  if (result.status === 429) throw new RateLimited("429 rate limited; rerun in a minute");
   if (result.status !== 200) throw new Error(`expected HTTP 200, got ${result.status} ${JSON.stringify(result.body)?.slice(0, 160)}`);
   const parsed = schema.safeParse(result.body);
   if (!parsed.success) {
@@ -102,7 +107,7 @@ export async function runChecks(checks: Check[]): Promise<CheckResult[]> {
     try {
       detail = await check.run();
     } catch (error) {
-      outcome = error instanceof Skip ? "skip" : "fail";
+      outcome = error instanceof Skip || error instanceof RateLimited ? "skip" : "fail";
       detail = error instanceof Error ? error.message : String(error);
     }
     results.push({ name: check.name, outcome, detail, ms: Math.round(performance.now() - started) });
@@ -141,6 +146,7 @@ export function vaultChecks(probe: Probe, vault: VaultSummary, options: { build:
   const v = vault.address;
   const label = (name: string) => `${vault.name}: ${name}`;
   let depositMint: string | undefined;
+  let firstPool: string | undefined;
   const otherMint = () => (depositMint === WSOL ? USDC : WSOL);
   const oneToken = (10n ** BigInt(vault.depositDecimals)).toString();
   const quote = (params: Partial<Record<string, string>>) =>
@@ -181,7 +187,16 @@ export function vaultChecks(probe: Probe, vault: VaultSummary, options: { build:
       name: label("pool search matches contract"),
       run: async () => {
         const { data } = expectContract(await probe(`/dlmm/pools?${new URLSearchParams({ vault: v, query: "SOL" })}`), vaultData(PoolSearchSchema));
+        firstPool = data.pools[0]?.address;
         return `${data.total} pool(s)`;
+      },
+    },
+    {
+      name: label("pool detail has an active bin"),
+      run: async () => {
+        if (!firstPool) throw new Skip("pool search returned no pool");
+        const { data } = expectContract(await probe(`/dlmm/pools/${firstPool}?${new URLSearchParams({ vault: v })}`), vaultData(PoolInfoSchema));
+        return `${data.tokenX.symbol}/${data.tokenY.symbol} active bin ${data.activeBinId}`;
       },
     },
     {

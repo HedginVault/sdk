@@ -8,6 +8,8 @@ import {
   ErrorBodySchema,
   type Holdings,
   HoldingsSchema,
+  type PoolInfo,
+  PoolInfoSchema,
   type PoolSearchPage,
   PoolSearchSchema,
   type Quote,
@@ -54,6 +56,8 @@ export interface HedgeClient {
   getStrategies(vault: string): Promise<Strategy[]>;
   getQuote(request: QuoteRequest): Promise<Quote>;
   searchPools(vault: string, query: string, page?: number): Promise<PoolSearchPage>;
+  /** One pool with its active bin, for choosing a `dlmm/open` range. */
+  getPool(vault: string, lbPair: string): Promise<PoolInfo>;
   /**
    * Builds, inspects, signs, sends, and confirms one action, following batches and `next`
    * continuations. Never rebuilds after an ambiguous send.
@@ -115,6 +119,8 @@ export function createHedgeClient(options: HedgeClientOptions): HedgeClient {
     },
     searchPools: async (vault, query, page = 1) =>
       (await call(`/dlmm/pools?${new URLSearchParams({ vault, query, page: String(page) })}`, vaultData(PoolSearchSchema))).data,
+    getPool: async (vault, lbPair) =>
+      (await call(`/dlmm/pools/${encodeURIComponent(lbPair)}?${new URLSearchParams({ vault })}`, vaultData(PoolInfoSchema))).data,
     build: async (action, body) => {
       const { result } = await call(`/transactions/${action}`, BuildResponseSchema, body);
       return Array.isArray(result) ? result : [result];

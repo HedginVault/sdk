@@ -6,10 +6,16 @@ const KEY = "hv1_demo_secret";
 const error = (status: number, code: string, message = code) => Response.json({ error: { code, message } }, { status });
 
 /** A small stand-in for the V1 API that behaves as documented; `bugs` breaks it on purpose. */
-function fakeApi(bugs: { holdingsRoute404?: boolean; leakLogs?: boolean } = {}): typeof fetch {
+const POOL = "BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y";
+const sol = { mint: "So11111111111111111111111111111111111111112", symbol: "SOL", decimals: 9 };
+const usdc = { mint: USDC, symbol: "USDC", decimals: 6 };
+
+function fakeApi(bugs: { holdingsRoute404?: boolean; leakLogs?: boolean; rateLimitAfter?: number } = {}): typeof fetch {
+  let requests = 0;
   return async (input, init) => {
     const url = new URL(String(input));
     const path = url.pathname.replace("/api/external/v1", "");
+    if (bugs.rateLimitAfter !== undefined && ++requests > bugs.rateLimitAfter) return error(429, "RateLimited", "Too many requests, slow down");
     const auth = new Headers(init?.headers).get("authorization");
     if (auth !== `Bearer ${KEY}`) return error(401, "Unauthorized", "Invalid API key");
     if (path === "/vaults") return Response.json({ vaults: [{ ...vaultSummary, depositMint: USDC }] });
@@ -32,7 +38,13 @@ function fakeApi(bugs: { holdingsRoute404?: boolean; leakLogs?: boolean } = {}):
     }
     if (path === "/dlmm/pools") {
       if (!url.searchParams.get("query")) return error(400, "Validation", "Invalid pool search query or page");
-      return Response.json({ vault: VAULT, data: { total: 0, page: 1, pages: 0, pools: [] } });
+      return Response.json({
+        vault: VAULT,
+        data: { total: 1, page: 1, pages: 1, pools: [{ address: POOL, name: "SOL-USDC", tokenX: sol, tokenY: usdc, binStep: 10 }] },
+      });
+    }
+    if (path === `/dlmm/pools/${POOL}`) {
+      return Response.json({ vault: VAULT, data: { lbPair: POOL, tokenX: sol, tokenY: usdc, binStep: 10, activeBinId: -1234, activePrice: "150.1" } });
     }
     if (path === "/transactions/status") {
       return bugs.leakLogs
@@ -55,7 +67,8 @@ describe("API checker", () => {
   it("passes every check against an API that follows the contract", async () => {
     const results = await runAll(fakeApi());
     expect(results.filter((r) => r.outcome !== "pass")).toEqual([]);
-    expect(results).toHaveLength(17);
+    expect(results).toHaveLength(18);
+    expect(results.find((r) => r.name === "Demo: pool detail has an active bin")?.detail).toBe("SOL/USDC active bin -1234");
   });
 
   it("catches the uppercase-address 404 bug fixed in app PR #16", async () => {
@@ -65,6 +78,13 @@ describe("API checker", () => {
       "Demo: holdings matches contract",
       "Demo: strategies matches contract",
     ]);
+  });
+
+  it("reports the checker's own rate limiting as skipped, not as API failures", async () => {
+    const results = await runAll(fakeApi({ rateLimitAfter: 6 }));
+    expect(results.filter((r) => r.outcome === "fail")).toEqual([]);
+    expect(results.filter((r) => r.outcome === "skip").length).toBeGreaterThan(0);
+    expect(results.find((r) => r.outcome === "skip" && r.detail.startsWith("429"))).toBeDefined();
   });
 
   it("fails an error body that leaks provider logs", async () => {

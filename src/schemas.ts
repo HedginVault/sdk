@@ -82,6 +82,11 @@ export const PoolSearchSchema = z.object({
       tokenX: z.object({ mint: z.string(), symbol: z.string(), decimals: z.number().int().nonnegative() }),
       tokenY: z.object({ mint: z.string(), symbol: z.string(), decimals: z.number().int().nonnegative() }),
       binStep: z.number(),
+      /** USD; display only. */
+      tvl: z.number().nullable().optional(),
+      fees24h: z.number().nullable().optional(),
+      /** Percent, e.g. 0.04 = 0.04 %. */
+      baseFeePct: z.number().nullable().optional(),
     }),
   ),
 });

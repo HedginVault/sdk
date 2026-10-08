@@ -2,7 +2,7 @@ import { Keypair, PublicKey, SystemProgram, TransactionInstruction, TransactionM
 import bs58 from "bs58";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../src/errors";
-import { type ExecutionTransport, type Progress, executeBuild, groupSteps } from "../src/executor";
+import { type ExecutionTransport, type Progress, executeBuild, executePhoenixOnboard, groupSteps } from "../src/executor";
 import type { BuiltStep, TransactionStatus } from "../src/schemas";
 import { DEFAULT_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS, keypairSigner } from "../src/signer";
 
@@ -97,6 +97,19 @@ describe("execute", () => {
     expect(VersionedTransaction.deserialize(Buffer.from(sent, "base64")).signatures[0]?.some((b) => b !== 0)).toBe(true);
   });
 
+  it("reports the vault a confirmed vault/initialize created", async () => {
+    const vault = Keypair.generate().publicKey.toBase58();
+    const { api } = fakeApi([[{ ...step(), vault }]]);
+    const outcome = await run({ action: "vault/initialize", body: { name: "Alpha" } }, api);
+    expect(outcome).toEqual({ kind: "confirmed", signatures: outcome.signatures, created: { vault } });
+  });
+
+  it("reports no created addresses for a plain swap", async () => {
+    const { api } = fakeApi([[step()]]);
+    const outcome = await run({ action: "jupiter/swap", body: { vault: "V" } }, api);
+    expect(outcome).toEqual({ kind: "confirmed", signatures: outcome.signatures });
+  });
+
   it("builds the next step only after the current one confirms", async () => {
     const first = step({ next: { path: "dlmm/zap-out/swap", body: { vault: "V", sources: [] } } });
     const { api, log } = fakeApi([[first], [step()]]);
@@ -169,5 +182,18 @@ describe("execute", () => {
     const outcome = await run({ action: "jupiter/swap", body: {} }, api, { clock });
     expect(outcome.kind).toBe("unresolved");
     expect(clock.t).toBeGreaterThanOrEqual(120_000);
+  });
+});
+
+describe("executePhoenixOnboard", () => {
+  it.each([
+    ["two transactions", [step(), step()]],
+    ["a continuation", [step({ next: { path: "phoenix/order", body: {} } })]],
+  ])("refuses an onboarding build with %s and sends nothing", async (_, built) => {
+    const { api } = fakeApi([built]);
+    const outcome = await executePhoenixOnboard("V", api, signer, policy);
+    expect(outcome).toEqual({ kind: "refused", signatures: [], reason: "Phoenix onboarding must be a single transaction" });
+    expect(api.build).toHaveBeenCalledWith("phoenix/onboard", { vault: "V" });
+    expect(api.send).not.toHaveBeenCalled();
   });
 });

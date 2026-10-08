@@ -53,14 +53,77 @@ const outcome = await hedge.execute(
 | `failed` | The API rejected the request, or a transaction failed on chain. `code` and `message` say why. | Earlier transactions in a batch may have landed; read state before retrying. |
 | `unresolved` | Sent, but the result is unknown after 120 s. `pending` lists the signatures. | Check an explorer. Do not resend blindly. |
 
+## Reads
+
+Every read needs the `read` scope and returns the `data` of the API's `{ vault, data }` body,
+parsed against the schemas in `src/schemas.ts`. Amounts are base-unit strings.
+
+| Method | Route | Returns |
+| --- | --- | --- |
+| `listVaults()` | `GET /vaults` | Vaults this key manages. |
+| `getVault(vault)` | `GET /vaults/{vault}` | Fees, limits, pending requests, pause flags, NAV epoch. |
+| `getHoldings(vault)` | `GET /vaults/{vault}/holdings` | Token balances and their value. |
+| `getStrategies(vault)` | `GET /vaults/{vault}/strategies` | Open Jupiter, DLMM, and Phoenix strategies. |
+| `getNavHistory(vault, limit?)` | `GET /vaults/{vault}/nav?limit=` | Posted NAVs, oldest first. The API defaults to 200. |
+| `getRequests(vault)` | `GET /vaults/{vault}/requests` | Queued deposits and withdrawals. |
+| `getStrategyHistory(vault)` | `GET /vaults/{vault}/strategy-history` | Closed strategies and their per-mint cash flows. |
+| `getPhoenix(vault)` | `GET /vaults/{vault}/phoenix` | Phoenix onboarding status, markets, open orders, margin. |
+
+`getNavHistory` and `getStrategyHistory` fail with `HistoryUnavailable` (HTTP 503) when the
+deployment has no history database. In `getPhoenix`, `openOrders`, `withdrawable`, and
+`account` are `null` when Phoenix's own API is down.
+
 ## Actions
 
-`jupiter/swap`, `dlmm/open`, `dlmm/add`, `dlmm/remove`, `dlmm/claim-fee`, `dlmm/zap-out`, and
-`strategy/close`, with typed bodies (`ActionRequest`). `execute` follows batch order
-(`sendConcurrently` groups, confirmation barriers) and `next` continuations
+`execute` runs every builder below, with typed bodies (`ActionRequest`). It follows batch
+order (`sendConcurrently` groups, confirmation barriers) and `next` continuations
 (`dlmm/extend`, `dlmm/add-range`, `dlmm/zap-out/swap`) on its own.
 
-The API key needs `send` plus each builder action it uses.
+| Action | Body besides `action` | Notes |
+| --- | --- | --- |
+| `jupiter/swap` | `vault, sourceMint, destinationMint, amount, slippageBps` | `amount` in source-mint base units. |
+| `jupiter/initialize` | `vault, targetMint` | Opens the strategy needed to hold `targetMint`. |
+| `dlmm/initialize` | `vault, lbPair`, and `width` or `lowerBinId` + `upperBinId` | Empty position, returned as `created.position`. `width` 1..70; `upperBinId` exclusive. |
+| `dlmm/open` | `vault, lbPair, lowerBinId, upperBinId, amountX, amountY, shape, maxActiveBinSlippage` | `upperBinId` exclusive. |
+| `dlmm/add` | `vault, position, amountX, amountY, shape, maxActiveBinSlippage` | |
+| `dlmm/remove` | `vault, position, bpsToRemove, cursorBinId?` | |
+| `dlmm/claim-fee` | `vault, position, cursorBinId?` | |
+| `dlmm/zap-out` | `vault, position, slippageBps, cursorBinId?` | |
+| `dlmm/close` | `vault, position` | Removes everything, claims fees, closes the strategy. |
+| `strategy/close` | `vault, strategy` | |
+| `phoenix/initialize` | `vault` | Then call `onboardPhoenix`. |
+| `phoenix/deposit` | `vault, amount` | USDC base units. |
+| `phoenix/withdraw` | `vault, amount` | USDC base units. A queued withdrawal needs `phoenix/sweep` later. |
+| `phoenix/order` | `vault, symbol, side, size, reduceOnly, order` | `size` is a decimal of the base asset ("0.5"). `order` is `{ type: "market", slippageBps }` (1..2000) or `{ type: "limit", price, postOnly }` (USD decimal). |
+| `phoenix/cancel` | `vault, symbol, orders` | `"all"`, or 1..20 `{ priceInTicks, orderSequenceNumber }` from `getPhoenix().openOrders`. |
+| `phoenix/sweep` | `vault` | Unwraps a queued Phoenix withdrawal into USDC. |
+| `vault/initialize` | `name, depositMint, performanceFeeBps, managementFeeBps, depositCap, minDeposit, minWithdrawalShares` | No `vault`. Needs a key not limited to specific vaults. A confirmed outcome carries the new address as `created.vault`. |
+| `vault/update` | `vault` and at least one of `performanceFeeBps, managementFeeBps, depositCap, minDeposit, minWithdrawalShares, status, depositPaused, withdrawalPaused` | |
+| `vault/claim-fee` | `vault` | Mints the accrued manager fee shares to the manager. |
+| `vault/close` | `vault` | |
+
+### Phoenix onboarding
+
+After `phoenix/initialize` confirms, register the vault's trader with Phoenix:
+
+```ts
+const outcome = await hedge.onboardPhoenix(vault.address, signer);
+```
+
+Phoenix must co-sign this transaction, so it cannot go through `execute`. `onboardPhoenix`
+builds it, checks it with the onboarding policy below, signs it as fee payer, and submits it
+to `/transactions/phoenix/onboard/submit`, where Phoenix adds its signature and sends it. It
+then polls `/transactions/status` like `execute` and returns the same `Outcome`.
+
+### Key scopes
+
+| To do this | The key needs |
+| --- | --- |
+| Any read | `read` |
+| Run a builder with `execute` | `send` and the action's own name, e.g. `phoenix/order` |
+| Follow a `next` continuation | its name too: `dlmm/extend`, `dlmm/add-range`, or `dlmm/zap-out/swap` |
+| `onboardPhoenix` | `send` and `phoenix/onboard` |
+| `vault/initialize` | `send` and `vault/initialize`, on a key not limited to specific vaults |
 
 Helpers for user-facing input: `getToken(vault, mint)` resolves a pasted contract address to
 symbol, decimals, and Jupiter verification (app PR #18); `parseUnits("1.5", decimals)` and
@@ -81,6 +144,12 @@ Before signing, every transaction in a build must:
 - call only the Hedge Vault program, ComputeBudget, Associated Token Account, Meteora DLMM, or Jupiter at the top level;
 - set a priority fee at or below 100,000 microLamports per CU (`maxComputeUnitPriceMicroLamports`).
 
+`onboardPhoenix` uses a separate, narrower policy. The transaction must be v0, paid by the
+signer's key, and call only the Phoenix program (`EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih`)
+at the top level, with no ComputeBudget instruction and so no priority fee. It is the only path
+that signs while another signature (Phoenix's) is still missing. `execute` refuses a direct
+Phoenix call and a missing co-signature as before.
+
 The whole build is inspected before any of it is sent. After an ambiguous send, the SDK
 polls the same receipt and never rebuilds, because a rebuild could execute the action twice.
 
@@ -91,7 +160,8 @@ polls the same receipt and never rebuilds, because a rebuild could execute the a
 
 `hedge-check-api` (or `yarn check-api` in this repo) probes a live API with `HEDGE_API_KEY`
 and optional `HEDGE_API_BASE_URL`: auth, routing, validation, error-body hygiene, and every
-read endpoint against the schemas this SDK parses. `--build` adds one unsigned swap build
+read endpoint against the schemas this SDK parses. History reads are skipped when the
+deployment has no history database, and the Phoenix read is skipped when Phoenix is down. `--build` adds one unsigned swap build
 per vault; nothing is signed or sent. A failure here means the API and this SDK disagree.
 
 ## Develop

@@ -1,27 +1,37 @@
 import { z } from "zod";
 import { type ActionRequest, toBuildRequest } from "./actions";
 import { ApiError } from "./errors";
-import { type ExecuteOptions, type Outcome, executeBuild } from "./executor";
+import { type ExecuteOptions, type Outcome, executeBuild, executePhoenixOnboard } from "./executor";
 import {
   BuildResponseSchema,
   type BuiltStep,
   ErrorBodySchema,
   type Holdings,
   HoldingsSchema,
+  type NavHistoryPoint,
+  NavHistoryPointSchema,
+  type PhoenixManager,
+  PhoenixManagerSchema,
   type PoolInfo,
   PoolInfoSchema,
   type PoolSearchPage,
   PoolSearchSchema,
   type Quote,
   QuoteSchema,
+  type RequestQueue,
+  RequestQueueSchema,
   type SendResult,
   SendResponseSchema,
   StatusResponseSchema,
   type Strategy,
+  type StrategyHistoryItem,
+  StrategyHistoryItemSchema,
   StrategySchema,
   type TokenDetail,
   TokenDetailSchema,
   type TransactionStatus,
+  type VaultDetail,
+  VaultDetailSchema,
   type VaultSummary,
   VaultsResponseSchema,
   vaultData,
@@ -54,8 +64,18 @@ export interface QuoteRequest {
 
 export interface HedgeClient {
   listVaults(): Promise<VaultSummary[]>;
+  /** On-chain vault state: fees, limits, pending requests, pause flags. */
+  getVault(vault: string): Promise<VaultDetail>;
   getHoldings(vault: string): Promise<Holdings>;
   getStrategies(vault: string): Promise<Strategy[]>;
+  /** Posted NAVs, oldest first; the API defaults to the latest 200. */
+  getNavHistory(vault: string, limit?: number): Promise<NavHistoryPoint[]>;
+  /** Queued deposits and withdrawals awaiting a NAV epoch. */
+  getRequests(vault: string): Promise<RequestQueue>;
+  /** Closed strategies with their per-mint cash flows, newest first. */
+  getStrategyHistory(vault: string): Promise<StrategyHistoryItem[]>;
+  /** Phoenix onboarding status, markets, open orders, and margin. */
+  getPhoenix(vault: string): Promise<PhoenixManager>;
   getQuote(request: QuoteRequest): Promise<Quote>;
   searchPools(vault: string, query: string, page?: number): Promise<PoolSearchPage>;
   /** Any mint's symbol, decimals, and verification, e.g. for a pasted contract address. */
@@ -67,6 +87,11 @@ export interface HedgeClient {
    * continuations. Never rebuilds after an ambiguous send.
    */
   execute(request: ActionRequest, signer: TransactionSigner, options?: ExecuteOptions): Promise<Outcome>;
+  /**
+   * Registers the vault's Phoenix trader after `phoenix/initialize`. Phoenix co-signs on submit,
+   * so this signs only a Phoenix-only transaction paid by the signer. Never resubmits.
+   */
+  onboardPhoenix(vault: string, signer: TransactionSigner, options?: ExecuteOptions): Promise<Outcome>;
   /** Low-level steps `execute` is made of. Prefer `execute`. */
   build(action: string, body: Record<string, unknown>): Promise<BuiltStep[]>;
   send(signedTransactionBase64: string, ticket: string): Promise<SendResult>;
@@ -105,10 +130,17 @@ export function createHedgeClient(options: HedgeClientOptions): HedgeClient {
     return parsed.data;
   }
 
-  const vaultPath = (vault: string, leaf: string) => `/vaults/${encodeURIComponent(vault)}/${leaf}`;
+  const vaultPath = (vault: string, leaf?: string) => `/vaults/${encodeURIComponent(vault)}${leaf === undefined ? "" : `/${leaf}`}`;
+  const policy = (signer: TransactionSigner) => ({ manager: signer.publicKey, programId, maxComputeUnitPriceMicroLamports });
 
   const client: HedgeClient = {
     listVaults: async () => (await call("/vaults", VaultsResponseSchema)).vaults,
+    getVault: async (vault) => (await call(vaultPath(vault), vaultData(VaultDetailSchema))).data,
+    getNavHistory: async (vault, limit) =>
+      (await call(vaultPath(vault, limit === undefined ? "nav" : `nav?${new URLSearchParams({ limit: String(limit) })}`), vaultData(z.array(NavHistoryPointSchema)))).data,
+    getRequests: async (vault) => (await call(vaultPath(vault, "requests"), vaultData(RequestQueueSchema))).data,
+    getStrategyHistory: async (vault) => (await call(vaultPath(vault, "strategy-history"), vaultData(z.array(StrategyHistoryItemSchema)))).data,
+    getPhoenix: async (vault) => (await call(vaultPath(vault, "phoenix"), vaultData(PhoenixManagerSchema))).data,
     getHoldings: async (vault) => (await call(vaultPath(vault, "holdings"), vaultData(HoldingsSchema))).data,
     getStrategies: async (vault) => (await call(vaultPath(vault, "strategies"), vaultData(z.array(StrategySchema)))).data,
     getQuote: async (request) => {
@@ -133,8 +165,11 @@ export function createHedgeClient(options: HedgeClientOptions): HedgeClient {
     },
     send: (transaction, ticket) => call("/transactions/send", SendResponseSchema, { transaction, ticket }),
     status: (receipt) => call(`/transactions/status?${new URLSearchParams({ receipt })}`, StatusResponseSchema),
-    execute: (request, signer, executeOptions) =>
-      executeBuild(toBuildRequest(request), client, signer, { manager: signer.publicKey, programId, maxComputeUnitPriceMicroLamports }, executeOptions),
+    execute: (request, signer, executeOptions) => executeBuild(toBuildRequest(request), client, signer, policy(signer), executeOptions),
+    onboardPhoenix: (vault, signer, executeOptions) => {
+      const submit = (transaction: string, ticket: string) => call("/transactions/phoenix/onboard/submit", SendResponseSchema, { transaction, ticket });
+      return executePhoenixOnboard(vault, { ...client, send: submit }, signer, policy(signer), executeOptions);
+    },
   };
   return client;
 }

@@ -10,11 +10,16 @@ import {
   BuildResponseSchema,
   ErrorBodySchema,
   HoldingsSchema,
+  NavHistoryPointSchema,
+  PhoenixManagerSchema,
   PoolInfoSchema,
   PoolSearchSchema,
   QuoteSchema,
+  RequestQueueSchema,
+  StrategyHistoryItemSchema,
   StrategySchema,
   TokenDetailSchema,
+  VaultDetailSchema,
   type VaultSummary,
   VaultsResponseSchema,
   vaultData,
@@ -78,6 +83,13 @@ function expectError(result: HttpResult, statuses: number[]): string {
   const leak = LEAK_PATTERNS.find((pattern) => pattern.test(text));
   if (leak) throw new Error(`error body leaks internals (${leak})`);
   return `${result.status} ${error.data.error.code}`;
+}
+
+/** A read whose backing service (history DB, Phoenix) is down or unconfigured is an outage, not a contract break. */
+function skipUnavailable(result: HttpResult, codes: string[]): HttpResult {
+  const error = ErrorBodySchema.safeParse(result.body);
+  if (result.status >= 500 && error.success && codes.includes(error.data.error.code)) throw new Skip(`${result.status} ${error.data.error.code}`);
+  return result;
 }
 
 function expectContract<T>(result: HttpResult, schema: z.ZodType<T>): T {
@@ -168,6 +180,43 @@ export function vaultChecks(probe: Probe, vault: VaultSummary, options: { build:
     {
       name: label("strategies matches contract"),
       run: async () => `${expectContract(await probe(`/vaults/${v}/strategies`), vaultData(StrategySchema.array())).data.length} strategy(ies)`,
+    },
+    {
+      name: label("vault detail matches contract"),
+      run: async () => {
+        const { data } = expectContract(await probe(`/vaults/${v}`), vaultData(VaultDetailSchema));
+        return `${data.status}, nav epoch ${data.navEpoch}, ${data.openStrategyCount} open strategy(ies)`;
+      },
+    },
+    {
+      name: label("NAV history matches contract"),
+      run: async () => {
+        const result = skipUnavailable(await probe(`/vaults/${v}/nav?limit=5`), ["HistoryUnavailable"]);
+        return `${expectContract(result, vaultData(NavHistoryPointSchema.array())).data.length} point(s)`;
+      },
+    },
+    { name: label("NAV history limit=0 → 400"), run: async () => expectError(await probe(`/vaults/${v}/nav?limit=0`), [400]) },
+    {
+      name: label("request queue matches contract"),
+      run: async () => {
+        const { data } = expectContract(await probe(`/vaults/${v}/requests`), vaultData(RequestQueueSchema));
+        return `${data.deposits.length} deposit(s), ${data.withdrawals.length} withdrawal(s)`;
+      },
+    },
+    {
+      name: label("strategy history matches contract"),
+      run: async () => {
+        const result = skipUnavailable(await probe(`/vaults/${v}/strategy-history`), ["HistoryUnavailable"]);
+        return `${expectContract(result, vaultData(StrategyHistoryItemSchema.array())).data.length} closed strategy(ies)`;
+      },
+    },
+    {
+      name: label("Phoenix view matches contract"),
+      run: async () => {
+        const result = skipUnavailable(await probe(`/vaults/${v}/phoenix`), ["PhoenixUnavailable", "RpcUnavailable"]);
+        const { data } = expectContract(result, vaultData(PhoenixManagerSchema));
+        return `${data.status}, ${data.markets.length} market(s)`;
+      },
     },
     {
       name: label("quote 1 deposit token matches contract"),

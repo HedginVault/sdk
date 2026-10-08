@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { baseChecks, createProbe, formatReport, runChecks, vaultChecks } from "../src/check-api";
-import { USDC, VAULT, holdings, quote, strategies, vaultSummary } from "./fixtures";
+import { USDC, VAULT, holdings, navHistory, phoenixView, quote, requestQueue, strategies, strategyHistory, vaultDetail, vaultSummary } from "./fixtures";
 
 const KEY = "hv1_demo_secret";
 const error = (status: number, code: string, message = code) => Response.json({ error: { code, message } }, { status });
@@ -10,7 +10,7 @@ const POOL = "BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y";
 const sol = { mint: "So11111111111111111111111111111111111111112", symbol: "SOL", decimals: 9 };
 const usdc = { mint: USDC, symbol: "USDC", decimals: 6 };
 
-function fakeApi(bugs: { holdingsRoute404?: boolean; leakLogs?: boolean; rateLimitAfter?: number } = {}): typeof fetch {
+function fakeApi(bugs: { holdingsRoute404?: boolean; leakLogs?: boolean; rateLimitAfter?: number; noHistoryDb?: boolean } = {}): typeof fetch {
   let requests = 0;
   return async (input, init) => {
     const url = new URL(String(input));
@@ -19,12 +19,16 @@ function fakeApi(bugs: { holdingsRoute404?: boolean; leakLogs?: boolean; rateLim
     const auth = new Headers(init?.headers).get("authorization");
     if (auth !== `Bearer ${KEY}`) return error(401, "Unauthorized", "Invalid API key");
     if (path === "/vaults") return Response.json({ vaults: [{ ...vaultSummary, depositMint: USDC }] });
-    const vaultRead = /^\/vaults\/([^/]+)\/(holdings|strategies)$/.exec(path);
+    const vaultRead = /^\/vaults\/([^/]+)(?:\/(holdings|strategies|nav|requests|strategy-history|phoenix))?$/.exec(path);
     if (vaultRead) {
       if (bugs.holdingsRoute404) return error(404, "NotFound", "Unknown manager API route");
       if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(vaultRead[1] ?? "")) return error(400, "Validation", "vault must be a public key");
       if (vaultRead[1] !== VAULT) return error(403, "Forbidden", "Vault is outside key scope");
-      return Response.json({ vault: VAULT, data: vaultRead[2] === "holdings" ? holdings : strategies });
+      const read = vaultRead[2];
+      if (read === "nav" && url.searchParams.get("limit") === "0") return error(400, "Validation", "limit must be a positive integer");
+      if (bugs.noHistoryDb && (read === "nav" || read === "strategy-history")) return error(503, "HistoryUnavailable", "Service temporarily unavailable");
+      const data = { holdings, strategies, nav: navHistory, requests: requestQueue, "strategy-history": strategyHistory, phoenix: phoenixView }[read ?? ""] ?? vaultDetail;
+      return Response.json({ vault: VAULT, data });
     }
     if (path === "/jupiter/quote") {
       const q = url.searchParams;
@@ -73,7 +77,8 @@ describe("API checker", () => {
   it("passes every check against an API that follows the contract", async () => {
     const results = await runAll(fakeApi());
     expect(results.filter((r) => r.outcome !== "pass")).toEqual([]);
-    expect(results).toHaveLength(20);
+    expect(results).toHaveLength(26);
+    expect(results.find((r) => r.name === "Demo: NAV history matches contract")?.detail).toBe("2 point(s)");
     expect(results.find((r) => r.name === "Demo: pool detail has an active bin")?.detail).toBe("SOL/USDC active bin -1234");
   });
 
@@ -83,6 +88,12 @@ describe("API checker", () => {
       "GET /vaults/not-a-key/holdings → 400",
       "Demo: holdings matches contract",
       "Demo: strategies matches contract",
+      "Demo: vault detail matches contract",
+      "Demo: NAV history matches contract",
+      "Demo: NAV history limit=0 → 400",
+      "Demo: request queue matches contract",
+      "Demo: strategy history matches contract",
+      "Demo: Phoenix view matches contract",
     ]);
   });
 
@@ -91,6 +102,14 @@ describe("API checker", () => {
     expect(results.filter((r) => r.outcome === "fail")).toEqual([]);
     expect(results.filter((r) => r.outcome === "skip").length).toBeGreaterThan(0);
     expect(results.find((r) => r.outcome === "skip" && r.detail.startsWith("429"))).toBeDefined();
+  });
+
+  it("skips history reads when the history database is not configured", async () => {
+    const results = await runAll(fakeApi({ noHistoryDb: true }));
+    expect(results.filter((r) => r.outcome !== "pass").map((r) => [r.name, r.outcome, r.detail])).toEqual([
+      ["Demo: NAV history matches contract", "skip", "503 HistoryUnavailable"],
+      ["Demo: strategy history matches contract", "skip", "503 HistoryUnavailable"],
+    ]);
   });
 
   it("fails an error body that leaks provider logs", async () => {

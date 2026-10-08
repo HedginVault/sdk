@@ -11,7 +11,14 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS, inspectTransaction, keypairFromFile, keypairSigner } from "../src/signer";
+import {
+  DEFAULT_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS,
+  PHOENIX_PROGRAM_ID,
+  inspectPhoenixOnboardTransaction,
+  inspectTransaction,
+  keypairFromFile,
+  keypairSigner,
+} from "../src/signer";
 
 const PROGRAM_ID = "r2ahBQ6gbPCJ9FxBymYcXuwXi8NmenRry7SE7QR7FAt";
 const manager = Keypair.generate();
@@ -75,6 +82,41 @@ describe("inspectTransaction", () => {
 
   it("refuses bytes that are not a transaction", () => {
     expect(() => inspectTransaction("bm90IGEgdHg=", policy)).toThrow(/Not a serialized Solana transaction/);
+  });
+});
+
+const onboarder = Keypair.generate().publicKey;
+const phoenixIx = (signer?: PublicKey) =>
+  new TransactionInstruction({
+    programId: new PublicKey(PHOENIX_PROGRAM_ID),
+    keys: signer ? [{ pubkey: signer, isSigner: true, isWritable: false }] : [],
+    data: Buffer.from([2]),
+  });
+
+describe("normal path versus Phoenix onboarding", () => {
+  it("normal inspection refuses a direct Phoenix call", () => {
+    expect(() => inspectTransaction(build([phoenixIx()]), policy)).toThrow(`Unexpected program ${PHOENIX_PROGRAM_ID}`);
+  });
+
+  it("normal inspection refuses the onboarding shape for its missing co-signature", () => {
+    expect(() => inspectTransaction(build([phoenixIx(onboarder)]), policy)).toThrow(`Transaction also needs a signature from ${onboarder.toBase58()}`);
+  });
+
+  it("onboarding inspection accepts a Phoenix-only transaction still missing Phoenix's signature", async () => {
+    const tx = inspectPhoenixOnboardTransaction(build([phoenixIx(onboarder)]), policy);
+    const signed = VersionedTransaction.deserialize(Buffer.from(await sign(tx), "base64"));
+    expect(signed.signatures.map((sig) => sig.some((b) => b !== 0))).toEqual([true, false]);
+  });
+
+  it("onboarding inspection refuses any other top-level program, including ComputeBudget", () => {
+    expect(() => inspectPhoenixOnboardTransaction(build([phoenixIx(onboarder), vaultIx()]), policy)).toThrow(`Unexpected program ${PROGRAM_ID}`);
+    const priced = build([ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 }), phoenixIx(onboarder)]);
+    expect(() => inspectPhoenixOnboardTransaction(priced, policy)).toThrow("Unexpected program ComputeBudget111111111111111111111111111111");
+  });
+
+  it("onboarding inspection refuses another fee payer", () => {
+    const other = Keypair.generate().publicKey;
+    expect(() => inspectPhoenixOnboardTransaction(build([phoenixIx(onboarder)], other), policy)).toThrow(`Fee payer ${other.toBase58()} is not the signer's key`);
   });
 });
 

@@ -3,7 +3,7 @@ import bs58 from "bs58";
 import type { BuildRequest } from "./actions";
 import { ApiError, UnsafeTransactionError } from "./errors";
 import type { BuiltStep, SendResult, TransactionStatus } from "./schemas";
-import { type SigningPolicy, type TransactionSigner, inspectTransaction } from "./signer";
+import { type SigningPolicy, type TransactionSigner, inspectPhoenixOnboardTransaction, inspectTransaction } from "./signer";
 
 const POLL_INTERVAL_MS = 2_000;
 // A blockhash lives ~60-90 s; past this the API reports `expired` or the outcome is truly unknown.
@@ -16,8 +16,14 @@ export type Progress =
   | { kind: "sent"; signature: string; status: "pending" | "unknown" }
   | { kind: "confirmed"; signature: string };
 
+/** Addresses an action created, e.g. the new vault from `vault/initialize` or the position from `dlmm/initialize`. */
+export interface Created {
+  vault?: string;
+  position?: string;
+}
+
 export type Outcome =
-  | { kind: "confirmed"; signatures: string[] }
+  | { kind: "confirmed"; signatures: string[]; created?: Created }
   /** The API built something the policy rejects. Nothing in that build was signed or sent. */
   | { kind: "refused"; signatures: string[]; reason: string }
   | { kind: "failed"; signatures: string[]; signature?: string; code: string; message: string }
@@ -54,17 +60,47 @@ const signatureOf = (tx: VersionedTransaction) => bs58.encode(tx.signatures[0] ?
  * Runs one action to a terminal outcome. Retries never rebuild: an ambiguous send is polled
  * by its receipt, because rebuilding could execute the action twice.
  */
-export async function executeBuild(
+export function executeBuild(
   request: BuildRequest,
   transport: ExecutionTransport,
   signer: TransactionSigner,
   policy: SigningPolicy,
   options: ExecuteOptions = {},
 ): Promise<Outcome> {
+  return run(request, transport, signer, (steps) => steps.map((step) => inspectTransaction(step.transaction, policy)), options);
+}
+
+/**
+ * Onboards the vault's Phoenix trader: one Phoenix-only transaction that Phoenix co-signs on
+ * submit. `transport.send` must submit to `/transactions/phoenix/onboard/submit`.
+ */
+export function executePhoenixOnboard(
+  vault: string,
+  transport: ExecutionTransport,
+  signer: TransactionSigner,
+  policy: SigningPolicy,
+  options: ExecuteOptions = {},
+): Promise<Outcome> {
+  const inspect = (steps: BuiltStep[]) => {
+    const [step] = steps;
+    if (!step || steps.length > 1 || step.next) throw new UnsafeTransactionError("Phoenix onboarding must be a single transaction");
+    return [inspectPhoenixOnboardTransaction(step.transaction, policy)];
+  };
+  return run({ action: "phoenix/onboard", body: { vault } }, transport, signer, inspect, options);
+}
+
+async function run(
+  request: BuildRequest,
+  transport: ExecutionTransport,
+  signer: TransactionSigner,
+  inspect: (steps: BuiltStep[]) => VersionedTransaction[],
+  options: ExecuteOptions,
+): Promise<Outcome> {
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const now = options.now ?? Date.now;
   const onProgress = options.onProgress ?? (() => {});
   const signatures: string[] = [];
+  const created: Created = {};
   let next: BuildRequest | undefined = request;
 
   for (let builds = 0; next; builds++) {
@@ -75,7 +111,11 @@ export async function executeBuild(
     try {
       steps = await transport.build(next.action, next.body);
       // Inspect the whole batch before sending any of it.
-      txs = steps.map((step) => inspectTransaction(step.transaction, policy));
+      txs = inspect(steps);
+      for (const step of steps) {
+        if (typeof step.vault === "string") created.vault = step.vault;
+        if (typeof step.position === "string") created.position = step.position;
+      }
     } catch (error) {
       if (error instanceof UnsafeTransactionError) return { kind: "refused", signatures, reason: error.message };
       if (error instanceof ApiError) return { kind: "failed", signatures, code: error.code, message: error.message };
@@ -114,7 +154,7 @@ export async function executeBuild(
     const continuation = [...steps].reverse().find((step) => step.next)?.next;
     next = continuation && { action: continuation.path, body: continuation.body };
   }
-  return { kind: "confirmed", signatures };
+  return Object.keys(created).length > 0 ? { kind: "confirmed", signatures, created } : { kind: "confirmed", signatures };
 }
 
 type Settled =

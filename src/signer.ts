@@ -5,6 +5,9 @@ import { UnsafeTransactionError } from "./errors";
 /** The Hedge Vault program published at hedgin.xyz/idl/hedge_vault.json. */
 export const HEDGE_VAULT_PROGRAM_ID = "r2ahBQ6gbPCJ9FxBymYcXuwXi8NmenRry7SE7QR7FAt";
 
+/** Phoenix Perpetuals, called directly only by its own onboarding transaction. */
+export const PHOENIX_PROGRAM_ID = "EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih";
+
 const COMPUTE_BUDGET_PROGRAM = "ComputeBudget111111111111111111111111111111";
 const SET_COMPUTE_UNIT_PRICE = 3;
 
@@ -62,8 +65,7 @@ export interface SigningPolicy {
   maxComputeUnitPriceMicroLamports: bigint;
 }
 
-/** Decodes a builder transaction and checks it against the policy before anything signs it. */
-export function inspectTransaction(base64: string, policy: SigningPolicy): VersionedTransaction {
+function decodeForSigner(base64: string, manager: PublicKey): VersionedTransaction {
   let tx: VersionedTransaction;
   try {
     tx = VersionedTransaction.deserialize(Buffer.from(base64, "base64"));
@@ -71,29 +73,49 @@ export function inspectTransaction(base64: string, policy: SigningPolicy): Versi
     throw new UnsafeTransactionError("Not a serialized Solana transaction");
   }
   if (tx.version !== 0) throw new UnsafeTransactionError("Expected a v0 transaction");
-
-  const { staticAccountKeys, header, compiledInstructions } = tx.message;
-  const payer = staticAccountKeys[0];
-  if (!payer?.equals(policy.manager)) {
+  const payer = tx.message.staticAccountKeys[0];
+  if (!payer?.equals(manager)) {
     throw new UnsafeTransactionError(`Fee payer ${payer?.toBase58() ?? "missing"} is not the signer's key`);
   }
-  for (let index = 1; index < header.numRequiredSignatures; index++) {
-    if (tx.signatures[index]?.every((byte) => byte === 0) !== false) {
-      throw new UnsafeTransactionError(`Transaction also needs a signature from ${staticAccountKeys[index]?.toBase58() ?? "an unknown key"}`);
-    }
-  }
+  return tx;
+}
 
-  const allowed = new Set([policy.programId, ...BUILDER_PROGRAMS]);
+function checkPrograms(tx: VersionedTransaction, allowed: Set<string>, maxComputeUnitPriceMicroLamports: bigint): void {
+  const { staticAccountKeys, compiledInstructions } = tx.message;
   for (const instruction of compiledInstructions) {
     // v0 requires invoked programs to be static keys; an index past them would be malformed.
     const program = staticAccountKeys[instruction.programIdIndex]?.toBase58();
     if (!program || !allowed.has(program)) throw new UnsafeTransactionError(`Unexpected program ${program ?? "outside static keys"}`);
     if (program === COMPUTE_BUDGET_PROGRAM && instruction.data[0] === SET_COMPUTE_UNIT_PRICE) {
       const price = Buffer.from(instruction.data).readBigUInt64LE(1);
-      if (price > policy.maxComputeUnitPriceMicroLamports) {
+      if (price > maxComputeUnitPriceMicroLamports) {
         throw new UnsafeTransactionError(`Priority fee ${price} microLamports/CU is above the cap`);
       }
     }
   }
+}
+
+/** Decodes a builder transaction and checks it against the policy before anything signs it. */
+export function inspectTransaction(base64: string, policy: SigningPolicy): VersionedTransaction {
+  const tx = decodeForSigner(base64, policy.manager);
+  const { staticAccountKeys, header } = tx.message;
+  for (let index = 1; index < header.numRequiredSignatures; index++) {
+    if (tx.signatures[index]?.every((byte) => byte === 0) !== false) {
+      throw new UnsafeTransactionError(`Transaction also needs a signature from ${staticAccountKeys[index]?.toBase58() ?? "an unknown key"}`);
+    }
+  }
+  checkPrograms(tx, new Set([policy.programId, ...BUILDER_PROGRAMS]), policy.maxComputeUnitPriceMicroLamports);
+  return tx;
+}
+
+/**
+ * The Phoenix onboarding policy, used only by `onboardPhoenix`. Phoenix's onboarder signs after
+ * the manager, so other signatures may still be missing. In exchange every top-level instruction
+ * must be the Phoenix program; ComputeBudget is refused too, so no priority fee can be set at all.
+ */
+export function inspectPhoenixOnboardTransaction(base64: string, policy: SigningPolicy): VersionedTransaction {
+  const tx = decodeForSigner(base64, policy.manager);
+  if (tx.message.compiledInstructions.length === 0) throw new UnsafeTransactionError("Onboarding transaction has no instructions");
+  checkPrograms(tx, new Set([PHOENIX_PROGRAM_ID]), policy.maxComputeUnitPriceMicroLamports);
   return tx;
 }

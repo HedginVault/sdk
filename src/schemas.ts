@@ -92,6 +92,14 @@ export const PoolSearchSchema = z.object({
 });
 export type PoolSearchPage = z.infer<typeof PoolSearchSchema>;
 
+export const TokenDetailSchema = TokenInfoSchema.extend({
+  name: z.string().optional(),
+  priceUsd: z.number().nullable(),
+  /** Jupiter verification; `null` when unknown. Warn before swapping an unverified token. */
+  verified: z.boolean().nullable(),
+});
+export type TokenDetail = z.infer<typeof TokenDetailSchema>;
+
 export const PoolInfoSchema = z.object({
   lbPair: z.string(),
   tokenX: TokenInfoSchema,

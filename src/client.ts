@@ -19,6 +19,8 @@ import {
   StatusResponseSchema,
   type Strategy,
   StrategySchema,
+  type TokenDetail,
+  TokenDetailSchema,
   type TransactionStatus,
   type VaultSummary,
   VaultsResponseSchema,
@@ -56,6 +58,8 @@ export interface HedgeClient {
   getStrategies(vault: string): Promise<Strategy[]>;
   getQuote(request: QuoteRequest): Promise<Quote>;
   searchPools(vault: string, query: string, page?: number): Promise<PoolSearchPage>;
+  /** Any mint's symbol, decimals, and verification, e.g. for a pasted contract address. */
+  getToken(vault: string, mint: string): Promise<TokenDetail>;
   /** One pool with its active bin, for choosing a `dlmm/open` range. */
   getPool(vault: string, lbPair: string): Promise<PoolInfo>;
   /**
@@ -119,6 +123,8 @@ export function createHedgeClient(options: HedgeClientOptions): HedgeClient {
     },
     searchPools: async (vault, query, page = 1) =>
       (await call(`/dlmm/pools?${new URLSearchParams({ vault, query, page: String(page) })}`, vaultData(PoolSearchSchema))).data,
+    getToken: async (vault, mint) =>
+      (await call(`/tokens/${encodeURIComponent(mint)}?${new URLSearchParams({ vault })}`, vaultData(TokenDetailSchema))).data,
     getPool: async (vault, lbPair) =>
       (await call(`/dlmm/pools/${encodeURIComponent(lbPair)}?${new URLSearchParams({ vault })}`, vaultData(PoolInfoSchema))).data,
     build: async (action, body) => {

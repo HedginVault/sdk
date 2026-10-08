@@ -62,6 +62,12 @@ const outcome = await hedge.execute(
 
 The API key needs `send` plus each builder action it uses.
 
+Helpers for user-facing input: `getToken(vault, mint)` resolves a pasted contract address to
+symbol, decimals, and Jupiter verification (app PR #18); `parseUnits("1.5", decimals)` and
+`formatUnits` convert amounts without floating point; `binRangeForPrices(pool, min, max)`
+turns a human price range into `lowerBinId`/`upperBinId`, with the bin count and which
+tokens the range can hold.
+
 To open a position, read the pool first with `getPool(vault, lbPair)` and choose
 `lowerBinId` and an exclusive `upperBinId` around its `activeBinId` (requires the app's
 `GET /dlmm/pools/{lbPair}` route, app PR #17).

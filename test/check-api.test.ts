@@ -43,6 +43,12 @@ function fakeApi(bugs: { holdingsRoute404?: boolean; leakLogs?: boolean; rateLim
         data: { total: 1, page: 1, pages: 1, pools: [{ address: POOL, name: "SOL-USDC", tokenX: sol, tokenY: usdc, binStep: 10 }] },
       });
     }
+    const tokenRead = /^\/tokens\/([^/]+)$/.exec(path);
+    if (tokenRead) {
+      return tokenRead[1] === USDC
+        ? Response.json({ vault: VAULT, data: { ...usdc, priceUsd: 1, verified: true } })
+        : error(404, "NotFound", `Mint ${tokenRead[1]} not found`);
+    }
     if (path === `/dlmm/pools/${POOL}`) {
       return Response.json({ vault: VAULT, data: { lbPair: POOL, tokenX: sol, tokenY: usdc, binStep: 10, activeBinId: -1234, activePrice: "150.1" } });
     }
@@ -67,7 +73,7 @@ describe("API checker", () => {
   it("passes every check against an API that follows the contract", async () => {
     const results = await runAll(fakeApi());
     expect(results.filter((r) => r.outcome !== "pass")).toEqual([]);
-    expect(results).toHaveLength(18);
+    expect(results).toHaveLength(20);
     expect(results.find((r) => r.name === "Demo: pool detail has an active bin")?.detail).toBe("SOL/USDC active bin -1234");
   });
 

@@ -14,6 +14,7 @@ import {
   PoolSearchSchema,
   QuoteSchema,
   StrategySchema,
+  TokenDetailSchema,
   type VaultSummary,
   VaultsResponseSchema,
   vaultData,
@@ -176,6 +177,15 @@ export function vaultChecks(probe: Probe, vault: VaultSummary, options: { build:
         return `out ${data.outAmount}, ${data.routeLabels.join(" → ")}`;
       },
     },
+    {
+      name: label("token detail for the deposit mint"),
+      run: async () => {
+        needDeposit();
+        const { data } = expectContract(await probe(`/tokens/${depositMint}?${new URLSearchParams({ vault: v })}`), vaultData(TokenDetailSchema));
+        return `${data.symbol}, ${data.decimals} decimals, verified ${data.verified}`;
+      },
+    },
+    { name: label("token detail for a random key → 404"), run: async () => expectError(await probe(`/tokens/${randomKey()}?${new URLSearchParams({ vault: v })}`), [404]) },
     { name: label("quote slippageBps=0 → 400"), run: async () => (needDeposit(), expectError(await quote({ slippageBps: "0" }), [400])) },
     { name: label("quote decimal amount → 400"), run: async () => (needDeposit(), expectError(await quote({ amount: "1.5" }), [400])) },
     { name: label("quote same mint both sides → 400"), run: async () => (needDeposit(), expectError(await quote({ outputMint: depositMint ?? "" }), [400])) },

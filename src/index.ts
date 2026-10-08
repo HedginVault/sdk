@@ -12,3 +12,5 @@ export {
   keypairFromFile,
   keypairSigner,
 } from "./signer";
+export { DLMM_BINS_PER_TRANSACTION, DLMM_MAX_POSITION_BINS, type DepositSides, type PriceRange, binPrice, binRangeForPrices } from "./dlmm";
+export { formatUnits, parseUnits } from "./units";

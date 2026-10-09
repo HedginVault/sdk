@@ -45,6 +45,9 @@ export const HoldingsSchema = z.object({
 });
 export type Holdings = z.infer<typeof HoldingsSchema>;
 
+/** USD per whole token; display only. Absent from older servers. */
+const PricedTokenSchema = TokenInfoSchema.extend({ priceUsd: z.number().nullable().optional() });
+
 export const StrategySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("jupiter"), address: z.string(), symbol: z.string(), decimals: z.number().int().nonnegative(), vaultBalance: BaseUnits }),
   z.object({
@@ -52,8 +55,8 @@ export const StrategySchema = z.discriminatedUnion("type", [
     address: z.string(),
     position: z.string(),
     lbPair: z.string().optional(),
-    tokenX: TokenInfoSchema,
-    tokenY: TokenInfoSchema,
+    tokenX: PricedTokenSchema,
+    tokenY: PricedTokenSchema,
     lowerPrice: z.string(),
     upperPrice: z.string(),
     activePrice: z.string(),
@@ -61,6 +64,11 @@ export const StrategySchema = z.discriminatedUnion("type", [
     amountY: BaseUnits,
     pendingFeeX: BaseUnits,
     pendingFeeY: BaseUnits,
+    /** Unix seconds the strategy was opened. */
+    createdTs: z.number().int().optional(),
+    /** All-time PnL from Meteora's indexer; null when unavailable. Display only. */
+    pnlUsd: z.number().nullable().optional(),
+    pnlPct: z.number().nullable().optional(),
   }),
   z.object({ type: z.literal("phoenix"), address: z.string(), equity: BaseUnits, leverage: z.number().nullable() }),
   z.object({ type: z.literal("unreadable"), address: z.string(), protocol: z.string(), reason: z.string() }),

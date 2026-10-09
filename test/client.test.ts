@@ -93,6 +93,19 @@ describe("createHedgeClient", () => {
     expect(fetch).toHaveBeenCalledWith(`https://example.test/api/external/v1/dlmm/pools?vault=${VAULT}&query=SOL&page=2`, expect.anything());
   });
 
+  it("keeps an LP position's token prices, Meteora PnL, and open time", async () => {
+    const tokenX = { mint: SOL, symbol: "SOL", decimals: 9, priceUsd: 150, logo: null };
+    const tokenY = { mint: USDC, symbol: "USDC", decimals: 6, priceUsd: 1, logo: null };
+    const dlmm = {
+      type: "dlmm", address: "S1", position: "P1", lbPair: "Pool1", tokenX, tokenY, lowerPrice: "140", upperPrice: "160", activePrice: "150",
+      amountX: "1", amountY: "2", pendingFeeX: "0", pendingFeeY: "0", createdTs: 1_700_000_000, pnlUsd: -1.5, pnlPct: -2.25, bins: [],
+    };
+    const fetch = stubFetch(200, { vault: VAULT, data: [dlmm] });
+    const api = createHedgeClient({ baseUrl: "https://example.test", apiKey: "k", fetch });
+    const [strategy] = await api.getStrategies(VAULT);
+    expect(strategy).toMatchObject({ tokenX: { priceUsd: 150 }, tokenY: { priceUsd: 1 }, createdTs: 1_700_000_000, pnlUsd: -1.5, pnlPct: -2.25 });
+  });
+
   it("keeps a pool's fee, TVL, and 24h volume from search results", async () => {
     const tokenX = { mint: SOL, symbol: "SOL", decimals: 9 };
     const tokenY = { mint: USDC, symbol: "USDC", decimals: 6 };

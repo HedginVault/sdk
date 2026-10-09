@@ -89,6 +89,7 @@ export const PoolSearchSchema = z.object({
       binStep: z.number(),
       /** USD; display only. */
       tvl: z.number().nullable().optional(),
+      volume24h: z.number().nullable().optional(),
       fees24h: z.number().nullable().optional(),
       /** Percent, e.g. 0.04 = 0.04 %. */
       baseFeePct: z.number().nullable().optional(),

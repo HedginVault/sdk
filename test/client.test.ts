@@ -92,6 +92,17 @@ describe("createHedgeClient", () => {
     expect(await api.searchPools(VAULT, "SOL", 2)).toEqual({ total: 0, page: 2, pages: 0, pools: [] });
     expect(fetch).toHaveBeenCalledWith(`https://example.test/api/external/v1/dlmm/pools?vault=${VAULT}&query=SOL&page=2`, expect.anything());
   });
+
+  it("keeps a pool's fee, TVL, and 24h volume from search results", async () => {
+    const tokenX = { mint: SOL, symbol: "SOL", decimals: 9 };
+    const tokenY = { mint: USDC, symbol: "USDC", decimals: 6 };
+    const found = { address: "Pool1", name: "SOL-USDC", tokenX, tokenY, binStep: 20, baseFeePct: 0.2, tvl: 1_250_000, volume24h: 340_000, fees24h: 680, currentPrice: 150 };
+    const fetch = stubFetch(200, { vault: VAULT, data: { total: 1, page: 1, pages: 1, pools: [found] } });
+    const api = createHedgeClient({ baseUrl: "https://example.test", apiKey: "k", fetch });
+    expect((await api.searchPools(VAULT, "SOL")).pools).toEqual([
+      { address: "Pool1", name: "SOL-USDC", tokenX, tokenY, binStep: 20, baseFeePct: 0.2, tvl: 1_250_000, volume24h: 340_000, fees24h: 680 },
+    ]);
+  });
 });
 
 describe("execute", () => {

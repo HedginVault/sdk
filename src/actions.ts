@@ -8,6 +8,9 @@ export type DlmmShape = "spot" | "curve" | "bidAsk";
 
 export type VaultStatus = "normal" | "paused" | "reduceOnly";
 
+/** Optional sub-range of an existing position: both ends inclusive, given together or not at all. */
+export type InclusiveBinSelection = { lowerBinId: number; upperBinId: number } | { lowerBinId?: never; upperBinId?: never };
+
 /** A resting Phoenix order, as `getPhoenix(vault).openOrders` lists it. */
 export interface PhoenixOrderId {
   /** u64 integer strings. */
@@ -41,7 +44,8 @@ export type ActionRequest =
       shape: DlmmShape;
       maxActiveBinSlippage: number;
     }
-  | {
+  /** With a bin selection, adds only to those bins. */
+  | ({
       action: "dlmm/add";
       vault: string;
       position: string;
@@ -49,8 +53,23 @@ export type ActionRequest =
       amountY: BaseUnitString;
       shape: DlmmShape;
       maxActiveBinSlippage: number;
+    } & InclusiveBinSelection)
+  /** With a bin selection, removes `bpsToRemove` only from those bins. */
+  | ({ action: "dlmm/remove"; vault: string; position: string; bpsToRemove: number; cursorBinId?: number } & InclusiveBinSelection)
+  /**
+   * In one atomic transaction, removes all liquidity from the bins and re-adds that token there as Bid-Ask.
+   * The range (both ends inclusive) must lie entirely above the active bin (token X) or below it (token Y);
+   * see `flipRange`. `activeBinId` is the one the caller read; a larger move than `maxActiveBinSlippage` fails.
+   */
+  | {
+      action: "dlmm/flip";
+      vault: string;
+      position: string;
+      lowerBinId: number;
+      upperBinId: number;
+      activeBinId: number;
+      maxActiveBinSlippage: number;
     }
-  | { action: "dlmm/remove"; vault: string; position: string; bpsToRemove: number; cursorBinId?: number }
   | { action: "dlmm/claim-fee"; vault: string; position: string; cursorBinId?: number }
   | { action: "dlmm/zap-out"; vault: string; position: string; slippageBps: number; cursorBinId?: number }
   | { action: "strategy/close"; vault: string; strategy: string }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { NavHistoryPointSchema, PhoenixManagerSchema, RequestQueueSchema, StrategyHistoryItemSchema, VaultDetailSchema } from "../src/schemas";
-import { navHistory, phoenixView, requestQueue, strategyHistory, vaultDetail } from "./fixtures";
+import { NavHistoryPointSchema, PhoenixManagerSchema, RequestQueueSchema, StrategyHistoryItemSchema, StrategySchema, VaultDetailSchema } from "../src/schemas";
+import { navHistory, phoenixView, requestQueue, strategies, strategyHistory, vaultDetail } from "./fixtures";
 
 const viaJson = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
 
@@ -42,5 +42,12 @@ describe("read schemas", () => {
   it("rejects a Phoenix order id that a cancel could not use", () => {
     const bad = { ...phoenixView, openOrders: [{ ...phoenixView.openOrders?.[0], orderSequenceNumber: "abc" }] };
     expect(PhoenixManagerSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it("keeps a DLMM position's bins and rejects a fractional bin amount", () => {
+    const dlmm = strategies.find((s) => s.type === "dlmm");
+    const withBins = { ...dlmm, lowerBinId: -2, upperBinId: 3, activeBinId: 0, binStep: 10, bins: [{ binId: 1, amountX: "5", amountY: "0" }] };
+    expect(StrategySchema.parse(viaJson(withBins))).toEqual(withBins);
+    expect(StrategySchema.safeParse({ ...withBins, bins: [{ binId: 1, amountX: "0.5", amountY: "0" }] }).success).toBe(false);
   });
 });

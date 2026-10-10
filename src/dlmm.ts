@@ -59,3 +59,26 @@ export function binRangeForPrices(pool: PoolPricing, minPrice: number, maxPrice:
     highPrice: binPrice(pool, lastBinId),
   };
 }
+
+/** On-chain convention: both ends inclusive, like a position's own `lowerBinId`/`upperBinId`. */
+export interface InclusiveBinRange {
+  lowerBinId: number;
+  upperBinId: number;
+}
+
+export type FlipSide = "x" | "y";
+
+/** A flip sells the vault's non-deposit token: X, unless X is the deposit mint. */
+export function flipSide(tokenXMint: string, depositMint: string): FlipSide {
+  return tokenXMint !== depositMint ? "x" : "y";
+}
+
+/**
+ * The part of `selection` holding only one side's token, as `dlmm/flip` needs: bins strictly above the
+ * active bin for X, strictly below it for Y. The active bin holds both tokens, so it is never flipped.
+ */
+export function flipRange(selection: InclusiveBinRange, activeBinId: number, side: FlipSide): InclusiveBinRange | null {
+  const lowerBinId = side === "x" ? Math.max(selection.lowerBinId, activeBinId + 1) : selection.lowerBinId;
+  const upperBinId = side === "y" ? Math.min(selection.upperBinId, activeBinId - 1) : selection.upperBinId;
+  return lowerBinId <= upperBinId ? { lowerBinId, upperBinId } : null;
+}

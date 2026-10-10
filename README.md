@@ -63,7 +63,7 @@ parsed against the schemas in `src/schemas.ts`. Amounts are base-unit strings.
 | `listVaults()` | `GET /vaults` | Vaults this key manages. |
 | `getVault(vault)` | `GET /vaults/{vault}` | Fees, limits, pending requests, pause flags, NAV epoch. |
 | `getHoldings(vault)` | `GET /vaults/{vault}/holdings` | Token balances and their value. |
-| `getStrategies(vault)` | `GET /vaults/{vault}/strategies` | Open Jupiter, DLMM, and Phoenix strategies. |
+| `getStrategies(vault)` | `GET /vaults/{vault}/strategies` | Open Jupiter, DLMM, and Phoenix strategies. DLMM positions carry inclusive `lowerBinId`/`upperBinId`, `activeBinId`, and per-bin `bins` on current servers. |
 | `getNavHistory(vault, limit?)` | `GET /vaults/{vault}/nav?limit=` | Posted NAVs, oldest first. The API defaults to 200. |
 | `getRequests(vault)` | `GET /vaults/{vault}/requests` | Queued deposits and withdrawals. |
 | `getStrategyHistory(vault)` | `GET /vaults/{vault}/strategy-history` | Closed strategies and their per-mint cash flows. |
@@ -85,8 +85,9 @@ order (`sendConcurrently` groups, confirmation barriers) and `next` continuation
 | `jupiter/initialize` | `vault, targetMint` | Opens the strategy needed to hold `targetMint`. |
 | `dlmm/initialize` | `vault, lbPair`, and `width` or `lowerBinId` + `upperBinId` | Empty position, returned as `created.position`. `width` 1..70; `upperBinId` exclusive. |
 | `dlmm/open` | `vault, lbPair, lowerBinId, upperBinId, amountX, amountY, shape, maxActiveBinSlippage` | `upperBinId` exclusive. |
-| `dlmm/add` | `vault, position, amountX, amountY, shape, maxActiveBinSlippage` | |
-| `dlmm/remove` | `vault, position, bpsToRemove, cursorBinId?` | |
+| `dlmm/add` | `vault, position, amountX, amountY, shape, maxActiveBinSlippage`, optional `lowerBinId` + `upperBinId` | Range both ends inclusive, given together, inside the position; adds only to those bins. |
+| `dlmm/remove` | `vault, position, bpsToRemove, cursorBinId?`, optional `lowerBinId` + `upperBinId` | Range as in `dlmm/add`; removes `bpsToRemove` only from those bins. |
+| `dlmm/flip` | `vault, position, lowerBinId, upperBinId, activeBinId, maxActiveBinSlippage` | One atomic transaction: removes all of the bins (both ends inclusive) and re-adds that token there as Bid-Ask. The range must lie strictly above (token X) or below (token Y) `activeBinId`; build it with `flipRange`. Does not claim fees. |
 | `dlmm/claim-fee` | `vault, position, cursorBinId?` | |
 | `dlmm/zap-out` | `vault, position, slippageBps, cursorBinId?` | |
 | `dlmm/close` | `vault, position` | Removes everything, claims fees, closes the strategy. |
@@ -120,7 +121,7 @@ then polls `/transactions/status` like `execute` and returns the same `Outcome`.
 | To do this | The key needs |
 | --- | --- |
 | Any read | `read` |
-| Run a builder with `execute` | `send` and the action's own name, e.g. `phoenix/order` |
+| Run a builder with `execute` | `send` and the action's own name, e.g. `phoenix/order` or `dlmm/flip` |
 | Follow a `next` continuation | its name too: `dlmm/extend`, `dlmm/add-range`, or `dlmm/zap-out/swap` |
 | `onboardPhoenix` | `send` and `phoenix/onboard` |
 | `vault/initialize` | `send` and `vault/initialize`, on a key not limited to specific vaults |
@@ -129,7 +130,8 @@ Helpers for user-facing input: `getToken(vault, mint)` resolves a pasted contrac
 symbol, decimals, and Jupiter verification (app PR #18); `parseUnits("1.5", decimals)` and
 `formatUnits` convert amounts without floating point; `binRangeForPrices(pool, min, max)`
 turns a human price range into `lowerBinId`/`upperBinId`, with the bin count and which
-tokens the range can hold.
+tokens the range can hold; `flipSide(tokenXMint, depositMint)` and `flipRange(selection, activeBinId, side)`
+pick the non-deposit token and the bins of a selection that `dlmm/flip` can take.
 
 To open a position, read the pool first with `getPool(vault, lbPair)` and choose
 `lowerBinId` and an exclusive `upperBinId` around its `activeBinId` (requires the app's

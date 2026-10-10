@@ -5,6 +5,7 @@ export {
   type BuildRequest,
   type DecimalString,
   type DlmmShape,
+  type InclusiveBinSelection,
   type PhoenixOrderId,
   type VaultStatus,
   toBuildRequest,
@@ -24,5 +25,5 @@ export {
   keypairFromFile,
   keypairSigner,
 } from "./signer";
-export { DLMM_BINS_PER_TRANSACTION, DLMM_MAX_POSITION_BINS, type DepositSides, type PriceRange, binPrice, binRangeForPrices } from "./dlmm";
+export { DLMM_BINS_PER_TRANSACTION, DLMM_MAX_POSITION_BINS, type DepositSides, type FlipSide, type InclusiveBinRange, type PriceRange, binPrice, binRangeForPrices, flipRange, flipSide } from "./dlmm";
 export { formatUnits, parseUnits } from "./units";

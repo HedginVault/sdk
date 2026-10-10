@@ -64,6 +64,13 @@ export const StrategySchema = z.discriminatedUnion("type", [
     amountY: BaseUnits,
     pendingFeeX: BaseUnits,
     pendingFeeY: BaseUnits,
+    /** Position bins, both ends inclusive, and the pool's active bin when read. Absent from older servers. */
+    lowerBinId: z.number().int().optional(),
+    upperBinId: z.number().int().optional(),
+    activeBinId: z.number().int().optional(),
+    binStep: z.number().int().positive().optional(),
+    /** Per-bin liquidity in base units. Absent from older servers. */
+    bins: z.array(z.object({ binId: z.number().int(), amountX: BaseUnits, amountY: BaseUnits })).optional(),
     /** Unix seconds the strategy was opened. */
     createdTs: z.number().int().optional(),
     /** All-time PnL from Meteora's indexer; null when unavailable. Display only. */

@@ -120,6 +120,18 @@ describe("execute", () => {
     expect(log.indexOf("build dlmm/zap-out/swap")).toBeGreaterThan(log.findIndex((l) => l.startsWith("status")));
   });
 
+  it("follows a zap-out into jupiter/sweep after the last zap step confirms", async () => {
+    const sweep = { path: "jupiter/sweep", body: { vault: "V", mint: "M", slippageBps: 100 } };
+    const { api, log } = fakeApi([[step({ sendConcurrently: true }), step({ sendConcurrently: true }), step({ next: sweep })], [step()]]);
+    const outcome = await run({ action: "dlmm/zap-out", body: {} }, api);
+    expect(outcome).toMatchObject({ kind: "confirmed" });
+    expect(outcome.signatures).toHaveLength(4);
+    expect(api.build).toHaveBeenLastCalledWith("jupiter/sweep", sweep.body);
+    const sweepAt = log.indexOf("build jupiter/sweep");
+    expect(log.slice(0, sweepAt).filter((l) => l.startsWith("send"))).toHaveLength(3);
+    expect(log[sweepAt - 1]).toMatch(/^status/);
+  });
+
   it("refuses an unsafe batch before sending any of it", async () => {
     const { api } = fakeApi([[step(), step({ transfer: true })]]);
     const outcome = await run({ action: "jupiter/swap", body: {} }, api);

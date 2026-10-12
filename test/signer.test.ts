@@ -52,6 +52,25 @@ describe("inspectTransaction", () => {
     expect(signed.signatures[0]?.some((b) => b !== 0)).toBe(true);
   });
 
+  it("accepts a sweep: Jupiter swap and strategy close, both through the vault program", () => {
+    const jupiter = new PublicKey("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4");
+    const swap = new TransactionInstruction({
+      programId: new PublicKey(PROGRAM_ID),
+      keys: [
+        { pubkey: manager.publicKey, isSigner: true, isWritable: true },
+        { pubkey: jupiter, isSigner: false, isWritable: false },
+      ],
+      data: Buffer.from([2]),
+    });
+    const close = new TransactionInstruction({
+      programId: new PublicKey(PROGRAM_ID),
+      keys: [{ pubkey: manager.publicKey, isSigner: true, isWritable: true }],
+      data: Buffer.from([3]),
+    });
+    const base64 = build([ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 10_000 }), swap, close]);
+    expect(inspectTransaction(base64, policy).message.compiledInstructions).toHaveLength(4);
+  });
+
   it("keeps a builder-added position signature when the manager signs", async () => {
     const position = Keypair.generate();
     const base64 = build([vaultIx(position.publicKey)], manager.publicKey);

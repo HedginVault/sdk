@@ -260,6 +260,11 @@ describe("new builder actions", () => {
     },
     { request: { action: "vault/update", vault: VAULT, withdrawalPaused: true }, path: "/transactions/vault/update", body: { vault: VAULT, withdrawalPaused: true } },
     { request: { action: "dlmm/initialize", vault: VAULT, lbPair: "Pool1", width: 20 }, path: "/transactions/dlmm/initialize", body: { vault: VAULT, lbPair: "Pool1", width: 20 } },
+    {
+      request: { action: "jupiter/sweep", vault: VAULT, mint: SOL, slippageBps: 100 },
+      path: "/transactions/jupiter/sweep",
+      body: { vault: VAULT, mint: SOL, slippageBps: 100 },
+    },
   ];
 
   it.each(cases)("$path posts its body without payer and confirms", async ({ request, path, body }) => {

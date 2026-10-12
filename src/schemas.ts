@@ -49,7 +49,15 @@ export type Holdings = z.infer<typeof HoldingsSchema>;
 const PricedTokenSchema = TokenInfoSchema.extend({ priceUsd: z.number().nullable().optional() });
 
 export const StrategySchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("jupiter"), address: z.string(), symbol: z.string(), decimals: z.number().int().nonnegative(), vaultBalance: BaseUnits }),
+  z.object({
+    type: z.literal("jupiter"),
+    address: z.string(),
+    /** The token this strategy lets the vault hold; never the deposit mint. */
+    targetMint: z.string(),
+    symbol: z.string(),
+    decimals: z.number().int().nonnegative(),
+    vaultBalance: BaseUnits,
+  }),
   z.object({
     type: z.literal("dlmm"),
     address: z.string(),

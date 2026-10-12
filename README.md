@@ -77,11 +77,12 @@ deployment has no history database. In `getPhoenix`, `openOrders`, `withdrawable
 
 `execute` runs every builder below, with typed bodies (`ActionRequest`). It follows batch
 order (`sendConcurrently` groups, confirmation barriers) and `next` continuations
-(`dlmm/extend`, `dlmm/add-range`, `dlmm/zap-out/swap`) on its own.
+(`dlmm/extend`, `dlmm/add-range`, `dlmm/zap-out/swap`, `jupiter/sweep`) on its own.
 
 | Action | Body besides `action` | Notes |
 | --- | --- | --- |
 | `jupiter/swap` | `vault, sourceMint, destinationMint, amount, slippageBps` | `amount` in source-mint base units. |
+| `jupiter/sweep` | `vault, mint, slippageBps` | One transaction: sells the vault's whole `mint` balance to the deposit mint, then closes `mint`'s Jupiter strategy. 409 while an open DLMM position or limit order uses `mint`. |
 | `jupiter/initialize` | `vault, targetMint` | Opens the strategy needed to hold `targetMint`. |
 | `dlmm/initialize` | `vault, lbPair`, and `width` or `lowerBinId` + `upperBinId` | Empty position, returned as `created.position`. `width` 1..70; `upperBinId` exclusive. |
 | `dlmm/open` | `vault, lbPair, lowerBinId, upperBinId, amountX, amountY, shape, maxActiveBinSlippage` | `upperBinId` exclusive. |
@@ -89,7 +90,7 @@ order (`sendConcurrently` groups, confirmation barriers) and `next` continuation
 | `dlmm/remove` | `vault, position, bpsToRemove, cursorBinId?`, optional `lowerBinId` + `upperBinId` | Range as in `dlmm/add`; removes `bpsToRemove` only from those bins. |
 | `dlmm/flip` | `vault, position, lowerBinId, upperBinId, activeBinId, maxActiveBinSlippage` | One atomic transaction: removes all of the bins (both ends inclusive) and re-adds that token there as Bid-Ask. The range must lie strictly above (token X) or below (token Y) `activeBinId`; build it with `flipRange`. Does not claim fees. |
 | `dlmm/claim-fee` | `vault, position, cursorBinId?` | |
-| `dlmm/zap-out` | `vault, position, slippageBps, cursorBinId?` | |
+| `dlmm/zap-out` | `vault, position, slippageBps, cursorBinId?` | When eligible, the last transaction continues to `jupiter/sweep` for the leftover non-deposit token. |
 | `dlmm/close` | `vault, position` | Removes everything, claims fees, closes the strategy. |
 | `strategy/close` | `vault, strategy` | |
 | `phoenix/initialize` | `vault` | Then call `onboardPhoenix`. |
@@ -122,7 +123,7 @@ then polls `/transactions/status` like `execute` and returns the same `Outcome`.
 | --- | --- |
 | Any read | `read` |
 | Run a builder with `execute` | `send` and the action's own name, e.g. `phoenix/order` or `dlmm/flip` |
-| Follow a `next` continuation | its name too: `dlmm/extend`, `dlmm/add-range`, or `dlmm/zap-out/swap` |
+| Follow a `next` continuation | its name too: `dlmm/extend`, `dlmm/add-range`, `dlmm/zap-out/swap`, or `jupiter/sweep` |
 | `onboardPhoenix` | `send` and `phoenix/onboard` |
 | `vault/initialize` | `send` and `vault/initialize`, on a key not limited to specific vaults |
 

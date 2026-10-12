@@ -20,8 +20,8 @@ export interface PhoenixOrderId {
 
 /**
  * One manager action, typed per V1 builder. `payer` is never sent: the API sets it from the key.
- * Continuation builders (`dlmm/extend`, `dlmm/add-range`, `dlmm/zap-out/swap`) are followed
- * automatically by `execute` from each step's `next`.
+ * Continuation builders (`dlmm/extend`, `dlmm/add-range`, `dlmm/zap-out/swap`, and `jupiter/sweep`
+ * after a zap-out) are followed automatically by `execute` from each step's `next`.
  */
 export type ActionRequest =
   | {
@@ -94,6 +94,12 @@ export type ActionRequest =
     }
   /** Removes all liquidity, claims fees, and closes the position and its strategy. */
   | { action: "dlmm/close"; vault: string; position: string }
+  /**
+   * In one atomic transaction, sells the vault's entire balance of `mint` (not the deposit mint) to the
+   * deposit mint and closes that mint's Jupiter strategy. Refused while an open DLMM position or limit
+   * order uses `mint`.
+   */
+  | { action: "jupiter/sweep"; vault: string; mint: string; slippageBps: number }
   /** Opens the vault's Jupiter strategy for `targetMint`, required before holding that token. */
   | { action: "jupiter/initialize"; vault: string; targetMint: string }
   /** Records the vault's Phoenix strategy. Then `onboardPhoenix` registers the trader with Phoenix. */

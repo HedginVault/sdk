@@ -26,7 +26,7 @@ import {
   type Strategy,
   type StrategyHistoryItem,
   StrategyHistoryItemSchema,
-  StrategySchema,
+  StrategyListSchema,
   type TokenDetail,
   TokenDetailSchema,
   type TransactionStatus,
@@ -108,7 +108,7 @@ export function createHedgeClient(options: HedgeClientOptions): HedgeClient {
   const programId = options.programId ?? HEDGE_VAULT_PROGRAM_ID;
   const maxComputeUnitPriceMicroLamports = options.maxComputeUnitPriceMicroLamports ?? DEFAULT_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS;
 
-  async function call<T>(path: string, schema: z.ZodType<T>, requestBody?: Record<string, unknown>): Promise<T> {
+  async function call<T>(path: string, schema: z.ZodType<T, z.ZodTypeDef, unknown>, requestBody?: Record<string, unknown>): Promise<T> {
     const response = await fetchImpl(`${baseUrl}/api/external/v1${path}`, {
       method: requestBody === undefined ? "GET" : "POST",
       headers: {
@@ -142,7 +142,7 @@ export function createHedgeClient(options: HedgeClientOptions): HedgeClient {
     getStrategyHistory: async (vault) => (await call(vaultPath(vault, "strategy-history"), vaultData(z.array(StrategyHistoryItemSchema)))).data,
     getPhoenix: async (vault) => (await call(vaultPath(vault, "phoenix"), vaultData(PhoenixManagerSchema))).data,
     getHoldings: async (vault) => (await call(vaultPath(vault, "holdings"), vaultData(HoldingsSchema))).data,
-    getStrategies: async (vault) => (await call(vaultPath(vault, "strategies"), vaultData(z.array(StrategySchema)))).data,
+    getStrategies: async (vault) => (await call(vaultPath(vault, "strategies"), vaultData(StrategyListSchema))).data,
     getQuote: async (request) => {
       const query = new URLSearchParams({
         vault: request.vault,

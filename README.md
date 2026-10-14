@@ -64,11 +64,11 @@ parsed against the schemas in `src/schemas.ts`. Amounts are base-unit strings.
 | `listVaults()` | `GET /vaults` | Vaults this key manages. |
 | `getVault(vault)` | `GET /vaults/{vault}` | Fees, limits, pending requests, pause flags, NAV epoch. |
 | `getHoldings(vault)` | `GET /vaults/{vault}/holdings` | Token balances and their value. |
-| `getStrategies(vault)` | `GET /vaults/{vault}/strategies` | Open Jupiter, DLMM, and Phoenix strategies. DLMM positions carry inclusive `lowerBinId`/`upperBinId`, `activeBinId`, and per-bin `bins` on current servers. |
+| `getStrategies(vault)` | `GET /vaults/{vault}/strategies` | Open Jupiter, DLMM position, DLMM limit order, and Phoenix strategies. DLMM positions carry inclusive `lowerBinId`/`upperBinId`, `activeBinId`, and per-bin `bins` on current servers. A strategy type newer than this SDK comes back as `unreadable` with the type in `protocol`. |
 | `getNavHistory(vault, limit?)` | `GET /vaults/{vault}/nav?limit=` | Posted NAVs, oldest first. The API defaults to 200. |
 | `getRequests(vault)` | `GET /vaults/{vault}/requests` | Queued deposits and withdrawals. |
 | `getStrategyHistory(vault)` | `GET /vaults/{vault}/strategy-history` | Closed strategies and their per-mint cash flows. |
-| `getPhoenix(vault)` | `GET /vaults/{vault}/phoenix` | Phoenix onboarding status, markets, open orders, margin. |
+| `getPhoenix(vault)` | `GET /vaults/{vault}/phoenix` | Phoenix onboarding status, markets, open orders, margin, armed TP/SL brackets (`tpSl`). |
 
 `getNavHistory` and `getStrategyHistory` fail with `HistoryUnavailable` (HTTP 503) when the
 deployment has no history database. In `getPhoenix`, `openOrders`, `withdrawable`, and
@@ -93,11 +93,13 @@ order (`sendConcurrently` groups, confirmation barriers) and `next` continuation
 | `dlmm/claim-fee` | `vault, position, cursorBinId?` | |
 | `dlmm/zap-out` | `vault, position, slippageBps, cursorBinId?` | When eligible, the last transaction continues to `jupiter/sweep` for the leftover non-deposit token. |
 | `dlmm/close` | `vault, position` | Removes everything, claims fees, closes the strategy. |
+| `dlmm/limit-order/place` | `vault, lbPair, side, bins` | `side` `ask` sells token X in bins above the active bin, `bid` sells token Y below it. `bins` is `[{ binId, amount }]`, strictly increasing, amounts in the sold token. May build two transactions. |
+| `dlmm/limit-order/cancel` | `vault, limitOrder, bins?` | Without `bins`, cancels every bin and closes the strategy, paying unfilled amounts, proceeds, and fees back to the vault. |
 | `strategy/close` | `vault, strategy` | |
 | `phoenix/initialize` | `vault` | Then call `onboardPhoenix`. |
 | `phoenix/deposit` | `vault, amount` | USDC base units. |
 | `phoenix/withdraw` | `vault, amount` | USDC base units. A queued withdrawal needs `phoenix/sweep` later. |
-| `phoenix/order` | `vault, symbol, side, size, reduceOnly, order` | `size` is a decimal of the base asset ("0.5"). `order` is `{ type: "market", slippageBps }` (1..2000) or `{ type: "limit", price, postOnly }` (USD decimal). |
+| `phoenix/order` | `vault, symbol, side, size, reduceOnly, order, tpSl?, disarmTpSl?` | `size` is a decimal of the base asset ("0.5"). `order` is `{ type: "market", slippageBps }` (1..2000) or `{ type: "limit", price, postOnly }` (USD decimal). `tpSl` (`{ takeProfit, stopLoss }`, USD decimals or `null`) arms a bracket on the resulting position; market orders only, not reduce-only. `disarmTpSl` cancels the armed bracket, for a full close. |
 | `phoenix/cancel` | `vault, symbol, orders` | `"all"`, or 1..20 `{ priceInTicks, orderSequenceNumber }` from `getPhoenix().openOrders`. |
 | `phoenix/sweep` | `vault` | Unwraps a queued Phoenix withdrawal into USDC. |
 | `vault/initialize` | `name, depositMint, performanceFeeBps, managementFeeBps, depositCap, minDeposit, minWithdrawalShares` | No `vault`. Needs a key not limited to specific vaults. A confirmed outcome carries the new address as `created.vault`. |

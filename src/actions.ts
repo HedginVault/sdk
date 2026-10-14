@@ -108,6 +108,23 @@ export type ActionRequest =
   | { action: "phoenix/deposit"; vault: string; amount: BaseUnitString }
   /** Withdraws Phoenix collateral to the vault; a queued withdrawal later needs `phoenix/sweep`. `amount` is USDC base units. */
   | { action: "phoenix/withdraw"; vault: string; amount: BaseUnitString }
+  /**
+   * Places a limit order. An ask sells token X in bins above the pool's active bin; a bid sells token Y
+   * below it. `bins` are strictly increasing, 1..the API's limit, each amount above zero in the sold token.
+   * Opens missing pair-token Jupiter strategies first; the build may be two transactions.
+   */
+  | {
+      action: "dlmm/limit-order/place";
+      vault: string;
+      lbPair: string;
+      side: "ask" | "bid";
+      bins: { binId: number; amount: BaseUnitString }[];
+    }
+  /**
+   * Cancels `bins`, or without them every bin still holding anything, paying unfilled amounts, proceeds,
+   * and fees back to the vault. Once the order is empty its strategy closes in the same transaction.
+   */
+  | { action: "dlmm/limit-order/cancel"; vault: string; limitOrder: string; bins?: number[] }
   | {
       action: "phoenix/order";
       vault: string;
@@ -122,6 +139,13 @@ export type ActionRequest =
         | { type: "market"; slippageBps: number }
         /** `price` in USD per base unit. */
         | { type: "limit"; price: DecimalString; postOnly: boolean };
+      /**
+       * Arms a TP/SL (USD trigger prices, at least one set) on the whole resulting position, replacing
+       * the market's armed one. The API accepts it only on a market order that is not reduce-only.
+       */
+      tpSl?: { takeProfit: DecimalString | null; stopLoss: DecimalString | null };
+      /** A full close also cancels the market's armed TP/SL, which would otherwise stay for the next position. */
+      disarmTpSl?: boolean;
     }
   /** `orders` is "all", or 1..20 orders from `getPhoenix(vault).openOrders`. */
   | { action: "phoenix/cancel"; vault: string; symbol: string; orders: "all" | PhoenixOrderId[] }

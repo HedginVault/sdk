@@ -59,8 +59,14 @@ describe("createHedgeClient", () => {
       expect.anything(),
     );
   });
-  it("rejects a strategy type the contract does not know", async () => {
+  it("lists a strategy type the contract does not know as unreadable", async () => {
     const api = createHedgeClient({ baseUrl: "https://example.test", apiKey: "k", fetch: stubFetch(200, { vault: VAULT, data: [{ type: "mystery", address: "x" }] }) });
+    expect(await api.getStrategies(VAULT)).toEqual([
+      { type: "unreadable", address: "x", protocol: "mystery", reason: "Not supported by this SDK version; upgrade @hedginxyz/sdk" },
+    ]);
+  });
+  it("rejects an unknown strategy type without an address", async () => {
+    const api = createHedgeClient({ baseUrl: "https://example.test", apiKey: "k", fetch: stubFetch(200, { vault: VAULT, data: [{ type: "mystery" }] }) });
     await expect(api.getStrategies(VAULT)).rejects.toMatchObject({ code: "contract_mismatch" });
   });
 
@@ -265,7 +271,37 @@ describe("new builder actions", () => {
       path: "/transactions/jupiter/sweep",
       body: { vault: VAULT, mint: SOL, slippageBps: 100 },
     },
+    {
+      request: {
+        action: "phoenix/order", vault: VAULT, symbol: "SOL", side: "long", size: "1", reduceOnly: false,
+        order: { type: "market", slippageBps: 50 }, tpSl: { takeProfit: "180", stopLoss: null },
+      },
+      path: "/transactions/phoenix/order",
+      body: { vault: VAULT, symbol: "SOL", side: "long", size: "1", reduceOnly: false, order: { type: "market", slippageBps: 50 }, tpSl: { takeProfit: "180", stopLoss: null } },
+    },
+    {
+      request: { action: "dlmm/limit-order/cancel", vault: VAULT, limitOrder: "Lo1" },
+      path: "/transactions/dlmm/limit-order/cancel",
+      body: { vault: VAULT, limitOrder: "Lo1" },
+    },
   ];
+
+  it("signs a limit order the API already co-signed with the order's new key", async () => {
+    const order = Keypair.generate();
+    const build = () => {
+      const ix = new TransactionInstruction({ programId: PROGRAM, keys: [{ pubkey: order.publicKey, isSigner: true, isWritable: true }], data: Buffer.from([2]) });
+      const message = new TransactionMessage({ payerKey: manager.publicKey, recentBlockhash: Keypair.generate().publicKey.toBase58(), instructions: [ix] }).compileToV0Message();
+      const tx = new VersionedTransaction(message);
+      tx.sign([order]);
+      return Buffer.from(tx.serialize()).toString("base64");
+    };
+    const { fetch, requests } = routedApi({ build });
+    const request: ActionRequest = { action: "dlmm/limit-order/place", vault: VAULT, lbPair: "Pool1", side: "ask", bins: [{ binId: 5, amount: "1000" }] };
+    expect(await createHedgeClient({ apiKey: "k", fetch }).execute(request, keypairSigner(manager))).toEqual({ kind: "confirmed", signatures: ["sig1"] });
+    expect(requests[0]).toMatchObject({ path: "/transactions/dlmm/limit-order/place", body: { vault: VAULT, lbPair: "Pool1", side: "ask", bins: [{ binId: 5, amount: "1000" }] } });
+    const sent = VersionedTransaction.deserialize(Buffer.from((requests[1]?.body as { transaction: string }).transaction, "base64"));
+    expect(sent.signatures.every((signature) => signature.some((byte) => byte !== 0))).toBe(true);
+  });
 
   it.each(cases)("$path posts its body without payer and confirms", async ({ request, path, body }) => {
     const { fetch, requests } = routedApi({ build: () => unsigned(manager.publicKey, [vaultIx]) });

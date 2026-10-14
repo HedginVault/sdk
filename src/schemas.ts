@@ -85,10 +85,70 @@ export const StrategySchema = z.discriminatedUnion("type", [
     pnlUsd: z.number().nullable().optional(),
     pnlPct: z.number().nullable().optional(),
   }),
+  /**
+   * A Meteora DLMM limit order. An ask rests token X above the active bin and sells it for Y; a bid rests
+   * token Y below it and buys X. Fills and fees stay in the order until `dlmm/limit-order/cancel` pays
+   * them back to the vault.
+   */
+  z.object({
+    type: z.literal("dlmm_limit_order"),
+    address: z.string(),
+    limitOrder: z.string(),
+    lbPair: z.string(),
+    tokenX: PricedTokenSchema,
+    tokenY: PricedTokenSchema,
+    side: z.enum(["ask", "bid"]),
+    binStep: z.number().int().positive(),
+    /** Lowest and highest bin the order rests in, both inclusive. */
+    lowerBinId: z.number().int(),
+    upperBinId: z.number().int(),
+    activeBinId: z.number().int(),
+    /** Token Y per token X, decimal-adjusted like a `dlmm` position's prices. */
+    lowerPrice: z.string(),
+    upperPrice: z.string(),
+    activePrice: z.string(),
+    /** `deposit` and `unfilled` are in the sold token (X for an ask), `proceeds` in the bought one. */
+    bins: z.array(
+      z.object({
+        binId: z.number().int(),
+        status: z.enum(["open", "partial", "filled"]),
+        /** Cancelled: holds nothing and no longer counts. */
+        empty: z.boolean(),
+        deposit: BaseUnits,
+        unfilled: BaseUnits,
+        proceeds: BaseUnits,
+        feeX: BaseUnits,
+        feeY: BaseUnits,
+      }),
+    ),
+    depositX: BaseUnits,
+    depositY: BaseUnits,
+    unfilledX: BaseUnits,
+    unfilledY: BaseUnits,
+    proceedsX: BaseUnits,
+    proceedsY: BaseUnits,
+    feeX: BaseUnits,
+    feeY: BaseUnits,
+    createdTs: z.number().int().optional(),
+  }),
   z.object({ type: z.literal("phoenix"), address: z.string(), equity: BaseUnits, leverage: z.number().nullable() }),
   z.object({ type: z.literal("unreadable"), address: z.string(), protocol: z.string(), reason: z.string() }),
 ]);
 export type Strategy = z.infer<typeof StrategySchema>;
+
+const knownStrategyTypes = new Set<unknown>(StrategySchema.options.map((option) => option.shape.type.value));
+
+/**
+ * A strategy type added to the API after this SDK version is reported as `unreadable`, so one new
+ * protocol does not fail the whole list. A known type with a wrong shape is still a contract mismatch.
+ */
+export const StrategyListSchema = z.array(
+  z.preprocess((value) => {
+    if (typeof value !== "object" || value === null || !("type" in value) || knownStrategyTypes.has(value.type)) return value;
+    const { type, address } = value as { type: unknown; address?: unknown };
+    return { type: "unreadable", address, protocol: type, reason: "Not supported by this SDK version; upgrade @hedginxyz/sdk" };
+  }, StrategySchema),
+);
 
 export const QuoteSchema = z.object({
   inAmount: BaseUnits,
@@ -219,7 +279,8 @@ export type RequestQueue = z.infer<typeof RequestQueueSchema>;
 export const StrategyHistoryItemSchema = z.object({
   strategy: z.string(),
   id: z.number().int().nullable(),
-  type: z.enum(["jupiter", "dlmm", "phoenix"]).nullable(),
+  /** Null when the type is unknown, including one added to the API after this SDK version. */
+  type: z.enum(["jupiter", "dlmm", "dlmm_limit_order", "phoenix"]).nullable().catch(null),
   protocolAccount: z.string().nullable(),
   /** Unix seconds. */
   openedTs: z.number().int().nullable(),
@@ -299,6 +360,21 @@ export const PhoenixManagerSchema = z.object({
       liquidationPrices: z.record(z.string()),
     })
     .nullable(),
+  /** Armed take-profit / stop-loss brackets; null when unreadable. Absent from older servers. */
+  tpSl: z
+    .array(
+      z.object({
+        symbol: z.string(),
+        index: z.number().int().nonnegative(),
+        /** USD decimal strings; null when that trigger is not armed. */
+        greaterPrice: DecimalString.nullable(),
+        lessPrice: DecimalString.nullable(),
+        /** The position side the bracket closes. */
+        closes: z.enum(["long", "short"]),
+      }),
+    )
+    .nullable()
+    .optional(),
 });
 export type PhoenixManager = z.infer<typeof PhoenixManagerSchema>;
 

@@ -1,9 +1,26 @@
 {
-  "name": "@hedginvault/sdk",
+  "name": "@hedginxyz/sdk",
   "version": "0.1.0",
-  "private": true,
   "description": "TypeScript client for the Hedge Vault manager bot API (V1): reads, safe local signing, and one-call execution.",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HedginVault/sdk.git"
+  },
+  "homepage": "https://github.com/HedginVault/sdk#readme",
+  "bugs": {
+    "url": "https://github.com/HedginVault/sdk/issues"
+  },
+  "keywords": [
+    "solana",
+    "hedge-vault",
+    "hedgin",
+    "sdk",
+    "defi"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
@@ -12,13 +29,17 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "check-api": "tsx --env-file=.env src/check-api.ts",
-    "prepare": "tsc -p tsconfig.json"
+    "prepare": "tsc -p tsconfig.json",
+    "prepublishOnly": "yarn typecheck && yarn test"
   },
   "peerDependencies": {
     "@solana/web3.js": "^1.98.4"

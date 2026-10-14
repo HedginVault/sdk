@@ -1,4 +1,4 @@
-# @hedginvault/sdk
+# @hedginxyz/sdk
 
 TypeScript client for the Hedge Vault manager bot API (V1). It turns the API's
 build → sign → send → confirm sequence into one call, and refuses to sign any server-built
@@ -9,12 +9,13 @@ locally, and tracks the result. The manager key never leaves your process.
 
 ## Install
 
-Not yet published to npm. Until then, consume a packed tarball:
-
 ```sh
-cd sdk && yarn build && yarn pack --filename ../my-bot/vendor/hedginvault-sdk.tgz
-cd ../my-bot && yarn add file:./vendor/hedginvault-sdk.tgz @solana/web3.js
+yarn add @hedginxyz/sdk @solana/web3.js
+# or
+npm install @hedginxyz/sdk @solana/web3.js
 ```
+
+Node 18 or later.
 
 `@solana/web3.js` is a peer dependency, so the SDK and your code share one copy of
 `Keypair`, `PublicKey`, and `VersionedTransaction`.
@@ -22,7 +23,7 @@ cd ../my-bot && yarn add file:./vendor/hedginvault-sdk.tgz @solana/web3.js
 ## Use
 
 ```ts
-import { createHedgeClient, keypairFromFile, keypairSigner } from "@hedginvault/sdk";
+import { createHedgeClient, keypairFromFile, keypairSigner } from "@hedginxyz/sdk";
 
 const hedge = createHedgeClient({ apiKey: process.env.HEDGE_API_KEY! });
 const signer = keypairSigner(keypairFromFile("/secure/path/manager.json"));
@@ -173,3 +174,17 @@ per vault; nothing is signed or sent. A failure here means the API and this SDK 
 yarn install --frozen-lockfile
 yarn typecheck && yarn test && yarn build
 ```
+
+## Release
+
+Publishing runs in GitHub Actions (`.github/workflows/publish.yml`) through npm trusted
+publishing, so no npm token is stored anywhere. To release:
+
+```sh
+npm version patch   # or minor / major; commits and tags vX.Y.Z
+git push --follow-tags
+```
+
+The workflow checks that the tag matches `package.json`, then `npm publish` runs typecheck,
+tests, and the build before uploading. Run `npm pack --dry-run` first to see exactly which
+files ship.

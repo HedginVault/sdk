@@ -250,6 +250,16 @@ describe("new builder actions", () => {
 
   const cases: { request: ActionRequest; path: string; body: Record<string, unknown> }[] = [
     {
+      request: { action: "phoenix/tpsl", vault: VAULT, symbol: "SOL", takeProfit: "120", stopLoss: "140" },
+      path: "/transactions/phoenix/tpsl",
+      body: { vault: VAULT, symbol: "SOL", takeProfit: "120", stopLoss: "140" },
+    },
+    {
+      request: { action: "phoenix/tpsl", vault: VAULT, symbol: "SOL", takeProfit: null, stopLoss: null },
+      path: "/transactions/phoenix/tpsl",
+      body: { vault: VAULT, symbol: "SOL", takeProfit: null, stopLoss: null },
+    },
+    {
       request: { action: "phoenix/order", vault: VAULT, symbol: "SOL", side: "short", size: "0.5", reduceOnly: false, order: { type: "market", slippageBps: 100 } },
       path: "/transactions/phoenix/order",
       body: { vault: VAULT, symbol: "SOL", side: "short", size: "0.5", reduceOnly: false, order: { type: "market", slippageBps: 100 } },

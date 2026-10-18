@@ -147,6 +147,8 @@ export type ActionRequest =
       /** A full close also cancels the market's armed TP/SL, which would otherwise stay for the next position. */
       disarmTpSl?: boolean;
     }
+  /** Replaces the market's TP/SL. A null price removes that leg; both null removes the bracket. */
+  | { action: "phoenix/tpsl"; vault: string; symbol: string; takeProfit: DecimalString | null; stopLoss: DecimalString | null }
   /** `orders` is "all", or 1..20 orders from `getPhoenix(vault).openOrders`. */
   | { action: "phoenix/cancel"; vault: string; symbol: string; orders: "all" | PhoenixOrderId[] }
   /** Unwraps tokens a queued Phoenix withdrawal delivered into USDC. */

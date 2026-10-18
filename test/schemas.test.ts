@@ -15,6 +15,20 @@ describe("read schemas", () => {
     expect(VaultDetailSchema.safeParse({ ...vaultDetail, status: "active" }).success).toBe(false);
   });
 
+  it("accepts omitted unmanaged holdings but rejects malformed entries and null", () => {
+    const { unmanagedHoldings, ...withoutUnmanagedHoldings } = vaultDetail;
+    const fromApp = { ...withoutUnmanagedHoldings, depositLogo: null, depositPriceUsd: 1, metadata: null };
+    const parsed = VaultDetailSchema.parse(viaJson(fromApp));
+    expect(parsed).toEqual(withoutUnmanagedHoldings);
+    expect(parsed.unmanagedHoldings).toBeUndefined();
+    expect(VaultDetailSchema.parse(viaJson(vaultDetail)).unmanagedHoldings).toEqual(unmanagedHoldings);
+    expect(VaultDetailSchema.safeParse({
+      ...fromApp,
+      unmanagedHoldings: [{ token: { mint: "SOL", symbol: "SOL", decimals: 9 }, amount: "0.5" }],
+    }).success).toBe(false);
+    expect(VaultDetailSchema.safeParse({ ...fromApp, unmanagedHoldings: null }).success).toBe(false);
+  });
+
   it("parses NAV history with a null timestamp and rejects a decimal NAV", () => {
     expect(NavHistoryPointSchema.array().parse(viaJson(navHistory))).toEqual(navHistory);
     expect(NavHistoryPointSchema.safeParse({ ...navHistory[0], navPerShare: "1.02" }).success).toBe(false);

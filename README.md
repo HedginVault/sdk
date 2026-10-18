@@ -59,6 +59,9 @@ const outcome = await hedge.execute(
 Every read needs the `read` scope and returns the `data` of the API's `{ vault, data }` body,
 parsed against the schemas in `src/schemas.ts`. Amounts are base-unit strings.
 
+`getVault()` may omit `unmanagedHoldings`. Check for `undefined` before reading the
+array: absent means these holdings are unknown, while `[]` means none were reported.
+
 | Method | Route | Returns |
 | --- | --- | --- |
 | `listVaults()` | `GET /vaults` | Vaults this key manages. |

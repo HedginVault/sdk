@@ -217,8 +217,8 @@ export const VaultDetailSchema = VaultSummarySchema.extend({
   shareMint: z.string(),
   shareSupply: BaseUnits,
   idleBalance: BaseUnits,
-  /** Non-deposit tokens in the vault's wallet outside any strategy (airdrops, dust). */
-  unmanagedHoldings: z.array(z.object({ token: TokenInfoSchema, amount: BaseUnits })),
+  /** Non-deposit tokens outside any strategy. The server may omit this; absent means unknown, not empty. */
+  unmanagedHoldings: z.array(z.object({ token: TokenInfoSchema, amount: BaseUnits })).optional(),
   pendingDeposits: BaseUnits,
   pendingWithdrawalShares: BaseUnits,
   unclaimedManagerFeeShares: BaseUnits,

@@ -4,7 +4,6 @@ import { z } from "zod";
 import { getAssociatedTokenAddress, getConfigPda, getStrategyPda } from "../chain/pda";
 import { ApiError } from "../errors";
 import type { HedgeVault } from "../idl/hedge_vault";
-import { PHOENIX_PROGRAM_ID } from "../signer";
 import { assemble, type Assembled } from "./assemble";
 import {
   assertOperator,
@@ -19,16 +18,13 @@ import {
   readTokenProgram,
   type VaultCtx,
 } from "./context";
+import { PHOENIX_GLOBAL_CONFIG, readCanonicalMint } from "./phoenix-accounts";
 
 type StrategyAccount = IdlAccounts<HedgeVault>["strategy"];
 
 const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 const DLMM_PROGRAM_ID = new PublicKey("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo");
 const DLMM_EVENT_AUTHORITY = new PublicKey("D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6");
-const PHOENIX_GLOBAL_CONFIG = new PublicKey("2zskx2iyCvb6Stg7RBZkt1f6MrF4dpYtMG3yMvKwqtUZ");
-const PHOENIX_GLOBAL_CONFIG_DISCRIMINATOR = Buffer.from([37, 146, 212, 210, 47, 136, 111, 20]);
-const PHOENIX_GLOBAL_CONFIG_LEN = 776;
-const PHOENIX_CANONICAL_MINT_OFFSET = 296;
 const LIMIT_ORDER_DISCRIMINATOR = Buffer.from([137, 183, 212, 91, 115, 29, 141, 227]);
 
 const writable = (pubkey: PublicKey): AccountMeta => ({ pubkey, isWritable: true, isSigner: false });
@@ -78,18 +74,6 @@ async function readDlmmPair(env: BuildEnv, protocolAccount: PublicKey, kind: "po
   return { lbPair, tokenXMint: pair.tokenXMint, tokenYMint: pair.tokenYMint };
 }
 
-async function phoenixCanonicalMint(env: BuildEnv): Promise<PublicKey> {
-  const info = await env.connection.getAccountInfo(PHOENIX_GLOBAL_CONFIG);
-  if (!info) throw new ApiError(502, "PhoenixUnavailable", "Phoenix global config not found");
-  if (
-    !info.owner.equals(new PublicKey(PHOENIX_PROGRAM_ID)) ||
-    info.data.length < PHOENIX_GLOBAL_CONFIG_LEN ||
-    !info.data.subarray(0, 8).equals(PHOENIX_GLOBAL_CONFIG_DISCRIMINATOR)
-  )
-    throw new ApiError(502, "PhoenixUnavailable", `phoenix_decode:${PHOENIX_GLOBAL_CONFIG.toBase58()}`);
-  return new PublicKey(info.data.subarray(PHOENIX_CANONICAL_MINT_OFFSET, PHOENIX_CANONICAL_MINT_OFFSET + 32));
-}
-
 /** The remaining accounts `vault_close_strategy` takes for each strategy type, and the delegate permission it checks. */
 async function closeAccounts(env: BuildEnv, vault: VaultCtx, strategyType: StrategyAccount["strategyType"]): Promise<{ permission: number; remaining: AccountMeta[] }> {
   // The hedge_vault program id stands for "no strategy" on the deposit mint side.
@@ -114,7 +98,7 @@ async function closeAccounts(env: BuildEnv, vault: VaultCtx, strategyType: Strat
   if (strategyType.meteoraDlmmLimitOrder) return dlmm(strategyType.meteoraDlmmLimitOrder.limitOrder, "limitOrder");
   if (strategyType.phoenixPerp) {
     // The program closes the vault's canonical-mint ATA (SPL Token) if it exists; the mint comes from Phoenix.
-    const canonicalMint = await phoenixCanonicalMint(env);
+    const canonicalMint = await readCanonicalMint(env);
     return {
       permission: DELEGATE_PHOENIX,
       remaining: [

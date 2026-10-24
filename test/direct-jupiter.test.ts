@@ -402,7 +402,7 @@ describe("direct jupiter/swap", () => {
 /** One build through the local transport, to see the steps `execute` would follow. */
 async function buildSteps(action: "jupiter/swap" | "jupiter/sweep", body: Record<string, unknown>, accounts: Map<string, AccountInfo<Buffer>>, fetch: typeof globalThis.fetch) {
   const { connection, calls } = fakeConnection(accounts);
-  const transport = localTransport({ connection, programId: PROGRAM, payer: manager.publicKey, now: () => NOW_MS, fetch, jupiter: jupiterConfig() });
+  const transport = localTransport({ connection, programId: PROGRAM, payer: manager.publicKey, now: () => NOW_MS, fetch, jupiter: jupiterConfig(), phoenixApiUrl: "https://perp-api.phoenix.trade" });
   const steps = await transport.build(action, body);
   return { steps, calls, txs: steps.map((s) => decodeTx(Buffer.from(s.transaction, "base64"), accounts)) };
 }

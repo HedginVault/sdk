@@ -98,6 +98,7 @@ Supported so far:
 | `listVaults()` | Every vault of the program, sorted by id. |
 | `getVault(vault)` | The vault, protocol config, deposit and share mints, and idle token account. |
 | `getRequests(vault)` | Queued deposit and withdrawal requests for the vault. |
+| `getPhoenix(vault)` | Phoenix strategy status, markets, open orders, margin and armed TP/SL, from chain and Phoenix's perp-api. |
 
 Differences from the API:
 
@@ -107,7 +108,7 @@ Differences from the API:
 - `depositSymbol` comes from Jupiter's token search (`lite-api.jup.ag`, or `api.jup.ag` when you pass `jupiterApiKey`). When Jupiter is down it falls back to a short mint label such as `EPjF…Dt1v`, as the app does.
 
 Options: `programId` points at another deployment of the program, `fetch` replaces the
-global `fetch` used for Jupiter, `jupiterHost` replaces the Jupiter host for quotes and swaps, and `maxComputeUnitPriceMicroLamports` caps the priority fee
+global `fetch` used for Jupiter and Phoenix, `jupiterHost` replaces the Jupiter host for quotes and swaps, `phoenixApiUrl` replaces Phoenix's perp-api host (`https://perp-api.phoenix.trade`), and `maxComputeUnitPriceMicroLamports` caps the priority fee
 `execute` will sign. An address that is not a vault of the program fails with `ApiError` code
 `NotFound`, the same code the API uses.
 
@@ -134,6 +135,13 @@ These actions build locally:
 | `jupiter/initialize` | The vault authority, or a delegate with Jupiter permission. |
 | `jupiter/swap` | The vault authority, or a delegate with Jupiter permission. |
 | `jupiter/sweep` | The vault authority, or a delegate with Jupiter permission. |
+| `phoenix/initialize` | The vault authority, or a delegate with Phoenix permission. |
+| `phoenix/deposit` | The vault authority, or a delegate with Phoenix permission. |
+| `phoenix/withdraw` | The vault authority, or a delegate with Phoenix permission. |
+| `phoenix/sweep` | The vault authority, or a delegate with Phoenix permission. |
+| `phoenix/order` | The vault authority, or a delegate with Phoenix permission. |
+| `phoenix/tpsl` | The vault authority, or a delegate with Phoenix permission. |
+| `phoenix/cancel` | The vault authority, or a delegate with Phoenix permission. |
 
 `jupiter/swap` and `jupiter/sweep` call Jupiter's Swap API (`lite-api.jup.ag`, or `api.jup.ag`
 with `x-api-key` when you pass `jupiterApiKey`; `jupiterHost` overrides the host) for the quote
@@ -143,6 +151,15 @@ anything is signed. Their `next` continuations (`jupiter/swap` after a strategy-
 transaction, `jupiter/sweep` when a strategy close does not fit behind the route) are local
 actions too, so `execute` follows them without the API. `getQuote(request)` returns the same
 `Quote` as the HTTP client.
+
+The Phoenix actions read Phoenix's accounts from chain. `phoenix/order`, `phoenix/tpsl` and
+`phoenix/cancel` also look up the market by symbol in Phoenix's perp-api market list. A
+Phoenix error or malformed response fails the build with an `ApiError` before anything is
+signed. `onboardPhoenix(vault, signer)` registers the vault's trader after
+`phoenix/initialize`: Phoenix builds the transaction, the signer signs it as fee payer under
+the onboarding policy below, the SDK submits it to Phoenix (which co-signs and broadcasts
+it), and the SDK confirms it through your `Connection`. A submit whose reply is lost is
+polled on chain, never resubmitted.
 
 Every other action still needs `createHedgeClient`; passing one to the direct `execute` is a
 type error. The program is the final check: the signer checks above only give a clear error

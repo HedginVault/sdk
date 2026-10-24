@@ -17,9 +17,11 @@ export interface BuildContext {
   payer: PublicKey;
   /** Milliseconds since the epoch. */
   now: () => number;
-  /** Jupiter quotes and swap instructions. */
+  /** Jupiter and Phoenix HTTP calls. */
   fetch: typeof fetch;
   jupiter: JupiterConfig;
+  /** Phoenix's perp-api: market list and trader onboarding. */
+  phoenixApiUrl: string;
 }
 
 export type BuildEnv = BuildContext & { program: Program<HedgeVault> };

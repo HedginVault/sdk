@@ -35,12 +35,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.test.json",
+    "check:cjs": "node --no-experimental-require-module -e \"require('./dist')\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "check-api": "tsx --env-file=.env src/check-api.ts",
     "sync-idl": "node scripts/sync-idl.mjs",
     "prepare": "tsc -p tsconfig.json",
-    "prepublishOnly": "yarn typecheck && yarn test"
+    "prepublishOnly": "yarn typecheck && yarn test && yarn build && yarn check:cjs"
   },
   "peerDependencies": {
     "@solana/web3.js": "^1.98.4"
@@ -48,6 +49,7 @@
   "packageManager": "yarn@1.22.22",
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
+    "@ellipsis-labs/rise": "0.5.28",
     "bs58": "4.0.1",
     "zod": "^3.23"
   },

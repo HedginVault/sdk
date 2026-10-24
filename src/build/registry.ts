@@ -3,6 +3,20 @@ import type { BuildAction } from "../actions";
 import type { Assembled } from "./assemble";
 import type { ActionBody, BuildEnv } from "./context";
 import { buildJupiterInitialize, jupiterInitializeInput } from "./jupiter-initialize";
+import {
+  buildPhoenixCancel,
+  buildPhoenixDeposit,
+  buildPhoenixInitialize,
+  buildPhoenixOrder,
+  buildPhoenixSweep,
+  buildPhoenixTpSl,
+  buildPhoenixWithdraw,
+  phoenixAmountInput,
+  phoenixCancelInput,
+  phoenixOrderInput,
+  phoenixTpSlInput,
+  phoenixVaultInput,
+} from "./phoenix";
 import { buildJupiterSwap, buildJupiterSweep, jupiterSwapInput, jupiterSweepInput } from "./jupiter-swap";
 import { buildStrategyClose, strategyCloseInput } from "./strategy";
 import { buildVaultClaimFee, buildVaultClose, buildVaultInitialize, buildVaultUpdate, vaultInitializeInput, vaultInput, vaultUpdateInput } from "./vault";
@@ -16,7 +30,14 @@ export type LocalAction =
   | "strategy/close"
   | "jupiter/initialize"
   | "jupiter/swap"
-  | "jupiter/sweep";
+  | "jupiter/sweep"
+  | "phoenix/initialize"
+  | "phoenix/deposit"
+  | "phoenix/withdraw"
+  | "phoenix/sweep"
+  | "phoenix/order"
+  | "phoenix/tpsl"
+  | "phoenix/cancel";
 
 /** One built transaction. `next` can name only a local action, so `execute` never sends a step it cannot continue. */
 export type LocalStep = Assembled & {
@@ -42,6 +63,13 @@ export const localBuilders = {
   "jupiter/initialize": { input: jupiterInitializeInput, build: buildJupiterInitialize },
   "jupiter/swap": { input: jupiterSwapInput, build: buildJupiterSwap },
   "jupiter/sweep": { input: jupiterSweepInput, build: buildJupiterSweep },
+  "phoenix/initialize": { input: phoenixVaultInput, build: buildPhoenixInitialize },
+  "phoenix/deposit": { input: phoenixAmountInput, build: buildPhoenixDeposit },
+  "phoenix/withdraw": { input: phoenixAmountInput, build: buildPhoenixWithdraw },
+  "phoenix/sweep": { input: phoenixVaultInput, build: buildPhoenixSweep },
+  "phoenix/order": { input: phoenixOrderInput, build: buildPhoenixOrder },
+  "phoenix/tpsl": { input: phoenixTpSlInput, build: buildPhoenixTpSl },
+  "phoenix/cancel": { input: phoenixCancelInput, build: buildPhoenixCancel },
 } satisfies LocalBuilders;
 
 export const isLocalAction = (action: string): action is LocalAction => Object.hasOwn(localBuilders, action);

@@ -38,6 +38,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check-api": "tsx --env-file=.env src/check-api.ts",
+    "sync-idl": "node scripts/sync-idl.mjs",
     "prepare": "tsc -p tsconfig.json",
     "prepublishOnly": "yarn typecheck && yarn test"
   },
@@ -46,6 +47,7 @@
   },
   "packageManager": "yarn@1.22.22",
   "dependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
     "bs58": "4.0.1",
     "zod": "^3.23"
   },

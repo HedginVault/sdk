@@ -17,9 +17,8 @@ import {
   toVaultSummary,
   tokenInfo,
 } from "./decode";
-import { getConfigPda, getShareMintPda } from "./pda";
+import { getAssociatedTokenAddress, getConfigPda, getShareMintPda } from "./pda";
 
-const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 /** RPC cap for getMultipleAccountsInfo, and Jupiter's /tokens/v2/search cap. */
 const MAX_PER_CALL = 100;
 // DepositRequest / WithdrawalRequest layout: 8 discriminator + 32 authority, then vault.
@@ -32,13 +31,14 @@ export interface ChainContext {
   jupiterApiKey?: string;
 }
 
-type Ctx = ChainContext & { coder: Program<HedgeVault>["coder"]["accounts"] };
+export type AccountsCoder = Program<HedgeVault>["coder"]["accounts"];
+type Ctx = ChainContext & { coder: AccountsCoder };
 
-/** The Program here only supplies the camelCase account coder; it never signs or sends. */
-export const chainContext = (ctx: ChainContext): Ctx => ({
-  ...ctx,
-  coder: new Program<HedgeVault>({ ...(idl as HedgeVault), address: ctx.programId.toBase58() }, { connection: ctx.connection }).coder.accounts,
-});
+/** Coders and instruction builders only; this Program has no wallet, so it never signs or sends. */
+export const hedgeProgram = (connection: Connection, programId: PublicKey) =>
+  new Program<HedgeVault>({ ...(idl as HedgeVault), address: programId.toBase58() }, { connection });
+
+export const chainContext = (ctx: ChainContext): Ctx => ({ ...ctx, coder: hedgeProgram(ctx.connection, ctx.programId).coder.accounts });
 
 const JupiterTokensSchema = z.array(z.object({ id: z.string(), symbol: z.string() }));
 
@@ -93,7 +93,7 @@ function parseAddress(address: string): PublicKey {
 }
 
 /** Only an account owned by the program with the Vault discriminator is a vault. */
-function decodeVault(ctx: Ctx, info: AccountInfo<Buffer> | null): VaultAccount {
+export function decodeVault(ctx: { programId: PublicKey; coder: AccountsCoder }, info: AccountInfo<Buffer> | null): VaultAccount {
   if (!info || !info.owner.equals(ctx.programId)) throw new ApiError(404, "NotFound", "Vault not found");
   try {
     return ctx.coder.decode<VaultAccount>("vault", info.data);
@@ -139,10 +139,7 @@ export async function readVaultDetail(ctx: Ctx, address: string): Promise<VaultD
   const share = shareMintInfo ? decodeMint(shareMintInfo.data) : null;
   if (!deposit) throw new Error("Deposit mint was not read");
   if (!share) throw new Error("Share mint account is missing");
-  const idleAccount = PublicKey.findProgramAddressSync(
-    [key.toBuffer(), deposit.tokenProgram.toBuffer(), vault.depositMint.toBuffer()],
-    ASSOCIATED_TOKEN_PROGRAM_ID,
-  )[0];
+  const idleAccount = getAssociatedTokenAddress(key, vault.depositMint, deposit.tokenProgram);
   const [idleInfo] = await getAccounts(ctx, [idleAccount]);
   return toVaultDetail(address, vault, deposit.token, config, {
     shareMint: shareMint.toBase58(),

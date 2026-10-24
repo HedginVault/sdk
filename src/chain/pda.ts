@@ -2,6 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { HEDGE_VAULT_PROGRAM_ID } from "../signer";
 
 const DEFAULT_PROGRAM_ID = new PublicKey(HEDGE_VAULT_PROGRAM_ID);
+const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
 const find = (seeds: (Buffer | Uint8Array)[], programId: PublicKey) => PublicKey.findProgramAddressSync(seeds, programId)[0];
 
@@ -34,3 +35,6 @@ export const getWithdrawalRequestPda = (vault: PublicKey, authority: PublicKey, 
   find([Buffer.from("withdrawal_request"), vault.toBuffer(), authority.toBuffer()], programId);
 export const getUnwrapPda = (withdrawalRequest: PublicKey, programId = DEFAULT_PROGRAM_ID) =>
   find([Buffer.from("unwrap"), withdrawalRequest.toBuffer()], programId);
+/** The associated token account of `owner` for `mint`; `owner` may be a PDA such as a vault. */
+export const getAssociatedTokenAddress = (owner: PublicKey, mint: PublicKey, tokenProgram: PublicKey) =>
+  find([owner.toBuffer(), tokenProgram.toBuffer(), mint.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID);

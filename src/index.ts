@@ -25,7 +25,8 @@ export {
   getVaultPda,
   getWithdrawalRequestPda,
 } from "./chain/pda";
-export { type DirectClientOptions, type DirectHedgeClient, createDirectClient } from "./direct";
+export { type LocalAction } from "./build/registry";
+export { type DirectActionRequest, type DirectClientOptions, type DirectHedgeClient, createDirectClient } from "./direct";
 export { ApiError, UnsafeTransactionError } from "./errors";
 export { type ExecuteOptions, type Created, type ExecutionTransport, type Outcome, type Progress, executeBuild, executePhoenixOnboard, groupSteps } from "./executor";
 export * from "./schemas";

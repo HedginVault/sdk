@@ -106,10 +106,36 @@ Differences from the API:
 - `getVault()` omits `unmanagedHoldings`. The API omits it too.
 - `depositSymbol` comes from Jupiter's token search (`lite-api.jup.ag`, or `api.jup.ag` when you pass `jupiterApiKey`). When Jupiter is down it falls back to a short mint label such as `EPjF…Dt1v`, as the app does.
 
-Options: `programId` points at another deployment of the program, and `fetch` replaces the
-global `fetch` used for Jupiter. An address that is not a vault of the program fails with
-`ApiError` code `NotFound`, the same code the API uses. Transactions still go through
-`createHedgeClient`.
+Options: `programId` points at another deployment of the program, `fetch` replaces the
+global `fetch` used for Jupiter, and `maxComputeUnitPriceMicroLamports` caps the priority fee
+`execute` will sign. An address that is not a vault of the program fails with `ApiError` code
+`NotFound`, the same code the API uses.
+
+### Direct execution
+
+`execute` on the direct client builds the transaction itself from chain state, then
+inspects, signs, sends and confirms it through your `Connection`. It uses the same signing
+policy and returns the same `Outcome` as `createHedgeClient().execute`. The signer's key is
+the fee payer and the acting manager.
+
+```ts
+const outcome = await hedge.execute({ action: "vault/claim-fee", vault: "<vault address>" }, keypairSigner(keypair));
+```
+
+These actions build locally:
+
+| Action | Who may sign |
+| --- | --- |
+| `vault/initialize` | A whitelisted manager. |
+| `vault/update` | The vault authority. |
+| `vault/claim-fee` | The vault authority. |
+| `vault/close` | The vault authority. |
+| `strategy/close` | The vault authority, or a delegate with the strategy's protocol permission. |
+| `jupiter/initialize` | The vault authority, or a delegate with Jupiter permission. |
+
+Every other action still needs `createHedgeClient`; passing one to the direct `execute` is a
+type error. The program is the final check: the signer checks above only give a clear error
+before simulation. A send lost to an RPC error is polled by its signature, never resent.
 
 ## Actions
 

@@ -107,7 +107,7 @@ Differences from the API:
 - `depositSymbol` comes from Jupiter's token search (`lite-api.jup.ag`, or `api.jup.ag` when you pass `jupiterApiKey`). When Jupiter is down it falls back to a short mint label such as `EPjF…Dt1v`, as the app does.
 
 Options: `programId` points at another deployment of the program, `fetch` replaces the
-global `fetch` used for Jupiter, and `maxComputeUnitPriceMicroLamports` caps the priority fee
+global `fetch` used for Jupiter, `jupiterHost` replaces the Jupiter host for quotes and swaps, and `maxComputeUnitPriceMicroLamports` caps the priority fee
 `execute` will sign. An address that is not a vault of the program fails with `ApiError` code
 `NotFound`, the same code the API uses.
 
@@ -132,6 +132,17 @@ These actions build locally:
 | `vault/close` | The vault authority. |
 | `strategy/close` | The vault authority, or a delegate with the strategy's protocol permission. |
 | `jupiter/initialize` | The vault authority, or a delegate with Jupiter permission. |
+| `jupiter/swap` | The vault authority, or a delegate with Jupiter permission. |
+| `jupiter/sweep` | The vault authority, or a delegate with Jupiter permission. |
+
+`jupiter/swap` and `jupiter/sweep` call Jupiter's Swap API (`lite-api.jup.ag`, or `api.jup.ag`
+with `x-api-key` when you pass `jupiterApiKey`; `jupiterHost` overrides the host) for the quote
+and the route's instructions, and cap `slippageBps` at the protocol's `maxSlippageBps`, as the
+API does. A Jupiter error or malformed response fails the build with an `ApiError`, before
+anything is signed. Their `next` continuations (`jupiter/swap` after a strategy-only
+transaction, `jupiter/sweep` when a strategy close does not fit behind the route) are local
+actions too, so `execute` follows them without the API. `getQuote(request)` returns the same
+`Quote` as the HTTP client.
 
 Every other action still needs `createHedgeClient`; passing one to the direct `execute` is a
 type error. The program is the final check: the signer checks above only give a clear error

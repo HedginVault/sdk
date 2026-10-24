@@ -14,6 +14,7 @@ import {
   DELEGATE_PHOENIX,
   delegateFor,
   loadVaultCtx,
+  type Operator,
   pubkey,
   readTokenProgram,
   type VaultCtx,
@@ -32,6 +33,25 @@ const LIMIT_ORDER_DISCRIMINATOR = Buffer.from([137, 183, 212, 91, 115, 29, 141, 
 
 const writable = (pubkey: PublicKey): AccountMeta => ({ pubkey, isWritable: true, isSigner: false });
 const readonly = (pubkey: PublicKey): AccountMeta => ({ pubkey, isWritable: false, isSigner: false });
+
+const jupiterCloseAccounts = (vault: VaultCtx, mint: PublicKey, tokenProgram: PublicKey) => [
+  writable(getAssociatedTokenAddress(vault.key, mint, tokenProgram)),
+  readonly(tokenProgram),
+];
+
+/** `vault_close_strategy` of the Jupiter strategy for `mint`, whose token program the caller already read. */
+export const closeJupiterStrategyIx = (env: BuildEnv, vault: VaultCtx, operator: Operator, mint: PublicKey, tokenProgram: PublicKey) =>
+  env.program.methods
+    .vaultCloseStrategy()
+    .accounts({
+      authority: env.payer,
+      config: getConfigPda(env.programId),
+      vault: vault.key,
+      strategy: getStrategyPda(vault.key, mint, env.programId),
+      delegate: delegateFor(operator, DELEGATE_JUPITER),
+    })
+    .remainingAccounts(jupiterCloseAccounts(vault, mint, tokenProgram))
+    .instruction();
 
 export const strategyCloseInput = z.object({ vault: pubkey, strategy: pubkey });
 
@@ -107,8 +127,7 @@ async function closeAccounts(env: BuildEnv, vault: VaultCtx, strategyType: Strat
   }
   if (strategyType.jupiterSwap) {
     const mint = strategyType.jupiterSwap.targetMint;
-    const tokenProgram = await readTokenProgram(env, mint);
-    return { permission: DELEGATE_JUPITER, remaining: [writable(getAssociatedTokenAddress(vault.key, mint, tokenProgram)), readonly(tokenProgram)] };
+    return { permission: DELEGATE_JUPITER, remaining: jupiterCloseAccounts(vault, mint, await readTokenProgram(env, mint)) };
   }
   throw new ApiError(400, "Validation", "Unsupported strategy type");
 }

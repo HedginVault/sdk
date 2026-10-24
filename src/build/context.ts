@@ -7,6 +7,7 @@ import { getDelegatePda, getShareMintPda } from "../chain/pda";
 import { decodeVault, hedgeProgram } from "../chain/reads";
 import { ApiError } from "../errors";
 import type { HedgeVault } from "../idl/hedge_vault";
+import type { JupiterConfig } from "./jupiter-api";
 
 /** What a local builder needs in place of the app's env and module singletons. */
 export interface BuildContext {
@@ -16,6 +17,9 @@ export interface BuildContext {
   payer: PublicKey;
   /** Milliseconds since the epoch. */
   now: () => number;
+  /** Jupiter quotes and swap instructions. */
+  fetch: typeof fetch;
+  jupiter: JupiterConfig;
 }
 
 export type BuildEnv = BuildContext & { program: Program<HedgeVault> };

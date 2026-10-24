@@ -1,219 +1,14 @@
-import { BN, BorshInstructionCoder, Program } from "@coral-xyz/anchor";
-import {
-  type AccountInfo,
-  type Connection,
-  Keypair,
-  PublicKey,
-  SendTransactionError,
-  type SignatureStatus,
-  type TransactionError,
-  VersionedTransaction,
-} from "@solana/web3.js";
-import bs58 from "bs58";
+import { SendTransactionError } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
-import { getAssociatedTokenAddress, getConfigPda, getDelegatePda, getManagerPda, getShareMintPda, getStrategyPda, getVaultPda } from "../src/chain/pda";
+import { getAssociatedTokenAddress, getConfigPda, getManagerPda, getShareMintPda, getStrategyPda } from "../src/chain/pda";
 import { type DirectActionRequest, createDirectClient } from "../src/direct";
-import type { Progress } from "../src/executor";
-import idl from "../src/idl/hedge_vault.json";
-import type { HedgeVault } from "../src/idl/hedge_vault";
 import { keypairSigner } from "../src/signer";
+import {
+  BLOCKHASH, BONK, BONK_STRATEGY, CONFIRMED, DELEGATE, DLMM, DLMM_EVENT_AUTHORITY, DLMM_STRATEGY, LIMIT_ORDER, LIMIT_STRATEGY, M, NEXT_VAULT, NOW_MS,
+  P, PHOENIX_GLOBAL_CONFIG, PHOENIX_STRATEGY, POOL, POSITION, PROGRAM, SHARE_MINT, SOL, TOKEN_2022, TOKEN_PROGRAM, TRADER, USDC, V, VAULT,
+  ata, chain, delegateWallet, encodeAccount, fakeConnection, info, key, manager, run, signatureOf, stranger,
+} from "./direct-chain";
 
-const program = new Program<HedgeVault>(idl as HedgeVault, { connection: {} as Connection });
-const accountsCoder = program.coder.accounts;
-const instructionCoder = new BorshInstructionCoder(program.idl);
-
-const PROGRAM = new PublicKey(idl.address);
-const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-const TOKEN_2022 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
-const DLMM = new PublicKey("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo");
-const DLMM_EVENT_AUTHORITY = new PublicKey("D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6");
-const PHOENIX = new PublicKey("EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih");
-const PHOENIX_GLOBAL_CONFIG = new PublicKey("2zskx2iyCvb6Stg7RBZkt1f6MrF4dpYtMG3yMvKwqtUZ");
-const COMPUTE_BUDGET = new PublicKey("ComputeBudget111111111111111111111111111111");
-const key = (n: number) => new PublicKey(Buffer.alloc(32, n));
-const USDC = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
-const SOL = new PublicKey("So11111111111111111111111111111111111111112");
-const BONK = key(21);
-const POSITION = key(22);
-const POOL = key(23);
-const LIMIT_ORDER = key(24);
-const TRADER = key(25);
-const BLOCKHASH = key(5).toBase58();
-const NOW_MS = 1_760_000_000_000;
-
-const manager = Keypair.fromSeed(new Uint8Array(32).fill(9));
-const delegateWallet = Keypair.fromSeed(new Uint8Array(32).fill(8));
-const stranger = Keypair.fromSeed(new Uint8Array(32).fill(7));
-const VAULT = getVaultPda(1n, PROGRAM);
-const NEXT_VAULT = getVaultPda(3n, PROGRAM);
-const SHARE_MINT = getShareMintPda(VAULT, PROGRAM);
-const DELEGATE = getDelegatePda(VAULT, delegateWallet.publicKey, PROGRAM);
-const BONK_STRATEGY = getStrategyPda(VAULT, BONK, PROGRAM);
-const DLMM_STRATEGY = getStrategyPda(VAULT, POSITION, PROGRAM);
-const LIMIT_STRATEGY = getStrategyPda(VAULT, LIMIT_ORDER, PROGRAM);
-const PHOENIX_STRATEGY = getStrategyPda(VAULT, TRADER, PROGRAM);
-
-type AccountName = Parameters<typeof accountsCoder.decode>[0];
-
-/** An IDL account of zeroes with `fields` set, so fixtures list only what the test reads. */
-async function encodeAccount(name: AccountName, fields: Record<string, unknown>): Promise<Buffer> {
-  const entry = idl.accounts.find((a) => a.name.toLowerCase() === name.toLowerCase());
-  if (!entry) throw new Error(`no IDL account ${name}`);
-  const zero = Buffer.concat([Buffer.from(entry.discriminator), Buffer.alloc(accountsCoder.size(name) - 8)]);
-  return accountsCoder.encode(name, { ...accountsCoder.decode<Record<string, unknown>>(name, zero), ...fields });
-}
-
-/** Anchor's `encode` writes into a fixed 1000-byte buffer, too small for DLMM accounts, so these place keys by offset. */
-function largeAccount(name: AccountName, keys: [offset: number, key: PublicKey][]): Buffer {
-  const entry = idl.accounts.find((a) => a.name.toLowerCase() === name.toLowerCase());
-  if (!entry) throw new Error(`no IDL account ${name}`);
-  const data = Buffer.alloc(accountsCoder.size(name));
-  Buffer.from(entry.discriminator).copy(data);
-  for (const [offset, k] of keys) k.toBuffer().copy(data, offset);
-  return data;
-}
-
-const info = (owner: PublicKey, data: Buffer): AccountInfo<Buffer> => ({ owner, data, lamports: 1, executable: false });
-
-function mintData() {
-  const data = Buffer.alloc(82);
-  data.writeUInt8(6, 44);
-  data.writeUInt8(1, 45);
-  return data;
-}
-
-const strategy = (strategyType: Record<string, unknown>) => encodeAccount("strategy", { vault: VAULT, strategyType });
-
-async function chain(delegate: { permissions: number; expiresAt: number } = { permissions: 1, expiresAt: 0 }) {
-  const limitOrder = Buffer.alloc(64);
-  Buffer.from([137, 183, 212, 91, 115, 29, 141, 227]).copy(limitOrder);
-  POOL.toBuffer().copy(limitOrder, 8);
-  const globalConfig = Buffer.alloc(776);
-  Buffer.from([37, 146, 212, 210, 47, 136, 111, 20]).copy(globalConfig);
-  USDC.toBuffer().copy(globalConfig, 296);
-  const entries: [PublicKey, AccountInfo<Buffer>][] = [
-    [VAULT, info(PROGRAM, await encodeAccount("vault", { id: new BN(1), authority: manager.publicKey, depositMint: USDC, shareMint: SHARE_MINT }))],
-    [getConfigPda(PROGRAM), info(PROGRAM, await encodeAccount("config", { nextVaultId: new BN(3) }))],
-    [getManagerPda(manager.publicKey, PROGRAM), info(PROGRAM, await encodeAccount("manager", { authority: manager.publicKey }))],
-    [
-      DELEGATE,
-      info(PROGRAM, await encodeAccount("delegate", { vault: VAULT, authority: delegateWallet.publicKey, permissions: new BN(delegate.permissions), expiresAt: new BN(delegate.expiresAt) })),
-    ],
-    [USDC, info(TOKEN_PROGRAM, mintData())],
-    [SOL, info(TOKEN_PROGRAM, mintData())],
-    [BONK, info(TOKEN_2022, mintData())],
-    [BONK_STRATEGY, info(PROGRAM, await strategy({ jupiterSwap: { targetMint: BONK } }))],
-    [DLMM_STRATEGY, info(PROGRAM, await strategy({ meteoraDlmm: { position: POSITION } }))],
-    [LIMIT_STRATEGY, info(PROGRAM, await strategy({ meteoraDlmmLimitOrder: { limitOrder: LIMIT_ORDER } }))],
-    [PHOENIX_STRATEGY, info(PROGRAM, await strategy({ phoenixPerp: { traderAccount: TRADER } }))],
-    [POSITION, info(DLMM, largeAccount("positionV2", [[8, POOL]]))],
-    [POOL, info(DLMM, largeAccount("lbPair", [[88, SOL], [120, USDC]]))],
-    [LIMIT_ORDER, info(DLMM, limitOrder)],
-    [PHOENIX_GLOBAL_CONFIG, info(PHOENIX, globalConfig)],
-  ];
-  return new Map(entries.map(([k, v]) => [k.toBase58(), v]));
-}
-
-const CONFIRMED: SignatureStatus = { slot: 1, confirmations: 1, err: null, confirmationStatus: "confirmed" };
-
-interface RpcOptions {
-  simulation?: { err: TransactionError; logs: string[] };
-  send?: (options: unknown) => Promise<string | undefined>;
-  status?: SignatureStatus | null;
-  blockhashValid?: boolean;
-  landedLogs?: string[];
-}
-
-const signatureOf = (bytes: Buffer | Uint8Array) => bs58.encode(VersionedTransaction.deserialize(bytes).signatures[0] ?? new Uint8Array(64));
-
-/** Serves fixture accounts and records every send and status lookup, as an RPC node would see them. */
-function fakeConnection(accounts: Map<string, AccountInfo<Buffer>>, options: RpcOptions = {}) {
-  const calls: string[] = [];
-  const sent: Buffer[] = [];
-  const context = { slot: 1 };
-  const connection = {
-    getAccountInfo: async (k: PublicKey) => accounts.get(k.toBase58()) ?? null,
-    getMultipleAccountsInfo: async (keys: PublicKey[]) => keys.map((k) => accounts.get(k.toBase58()) ?? null),
-    getRecentPrioritizationFees: async () => [
-      { slot: 1, prioritizationFee: 4_000 },
-      { slot: 2, prioritizationFee: 6_000 },
-    ],
-    simulateTransaction: async () => ({
-      context,
-      value: { err: options.simulation?.err ?? null, logs: options.simulation?.logs ?? [], unitsConsumed: 50_000, accounts: null, returnData: null },
-    }),
-    getLatestBlockhash: async () => ({ blockhash: BLOCKHASH, lastValidBlockHeight: 100 }),
-    sendRawTransaction: async (bytes: Buffer, sendOptions: unknown) => {
-      calls.push(`send ${JSON.stringify(sendOptions)}`);
-      sent.push(bytes);
-      return (await options.send?.(sendOptions)) ?? signatureOf(bytes);
-    },
-    getSignatureStatuses: async (_: string[], config?: { searchTransactionHistory?: boolean }) => {
-      calls.push(config?.searchTransactionHistory ? "status history" : "status");
-      return { context, value: [options.status === undefined ? CONFIRMED : options.status] };
-    },
-    isBlockhashValid: async () => {
-      calls.push("isBlockhashValid");
-      return { context, value: options.blockhashValid ?? true };
-    },
-    getTransaction: async () => ({ meta: { logMessages: options.landedLogs ?? [] } }),
-  };
-  return { connection: connection as unknown as Connection, calls, sent };
-}
-
-const plain = (value: unknown): unknown => {
-  if (BN.isBN(value)) return (value as BN).toString();
-  if (value instanceof PublicKey) return value.toBase58();
-  if (Array.isArray(value)) return value.map(plain);
-  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, plain(v)]));
-  return value;
-};
-
-/** The one Hedge Vault instruction of a transaction, decoded by the IDL, with its accounts by IDL name. */
-function hedgeInstruction(bytes: Buffer) {
-  const tx = VersionedTransaction.deserialize(bytes);
-  const keys = tx.message.staticAccountKeys;
-  const ixs = tx.message.compiledInstructions.filter((ix) => keys[ix.programIdIndex]?.equals(PROGRAM));
-  const [ix] = ixs;
-  if (!ix || ixs.length !== 1) throw new Error(`expected one hedge_vault instruction, got ${ixs.length}`);
-  const decoded = instructionCoder.decode(Buffer.from(ix.data));
-  const idlIx = idl.instructions.find((i) => i.name === decoded?.name.replace(/[A-Z]/g, (c: string) => `_${c.toLowerCase()}`));
-  if (!decoded || !idlIx) throw new Error("not a hedge_vault instruction");
-  const metas = ix.accountKeyIndexes.map((i) => keys[i]?.toBase58());
-  const budget = tx.message.compiledInstructions.filter((i) => keys[i.programIdIndex]?.equals(COMPUTE_BUDGET)).map((i) => Buffer.from(i.data));
-  return {
-    name: decoded.name,
-    args: plain(decoded.data),
-    accounts: Object.fromEntries(idlIx.accounts.map((a, i) => [a.name, metas[i]])),
-    remaining: metas.slice(idlIx.accounts.length),
-    payer: keys[0]?.toBase58(),
-    blockhash: tx.message.recentBlockhash,
-    computeUnitLimit: budget.find((d) => d[0] === 2)?.readUInt32LE(1),
-    computeUnitPriceMicroLamports: budget.find((d) => d[0] === 3)?.readBigUInt64LE(1),
-  };
-}
-
-/** A fixed clock that the executor's sleeps advance. */
-function clock() {
-  let now = NOW_MS;
-  return { now: () => now, sleep: async (ms: number) => void (now += ms) };
-}
-
-async function run(request: DirectActionRequest, rpc: RpcOptions = {}, signer = manager, accounts?: Map<string, AccountInfo<Buffer>>) {
-  const fake = fakeConnection(accounts ?? (await chain()), rpc);
-  const progress: Progress[] = [];
-  const outcome = await createDirectClient({ connection: fake.connection }).execute(request, keypairSigner(signer), {
-    ...clock(),
-    onProgress: (p) => void progress.push(p),
-  });
-  const [first] = fake.sent;
-  return { outcome, progress, calls: fake.calls, sent: fake.sent, ix: first && hedgeInstruction(first) };
-}
-
-const M = manager.publicKey.toBase58();
-const V = VAULT.toBase58();
-const P = PROGRAM.toBase58();
-const ata = (owner: PublicKey, mint: PublicKey, tokenProgram: PublicKey) => getAssociatedTokenAddress(owner, mint, tokenProgram).toBase58();
 
 const cases: { request: DirectActionRequest; name: string; args: unknown; accounts: Record<string, string>; remaining?: string[] }[] = [
   {
@@ -518,10 +313,10 @@ describe("direct execute transport", () => {
     const fake = fakeConnection(await chain());
     const client = createDirectClient({ connection: fake.connection });
     const outcome = await client.execute(
-      // @ts-expect-error jupiter/swap still needs createHedgeClient
-      { action: "jupiter/swap", vault: V, sourceMint: USDC.toBase58(), destinationMint: SOL.toBase58(), amount: "1", slippageBps: 50 },
+      // @ts-expect-error dlmm/claim-fee still needs createHedgeClient
+      { action: "dlmm/claim-fee", vault: V, position: POSITION.toBase58() },
       keypairSigner(manager),
     );
-    expect(outcome).toEqual({ kind: "failed", signatures: [], code: "NotFound", message: "jupiter/swap has no local builder; use createHedgeClient" });
+    expect(outcome).toEqual({ kind: "failed", signatures: [], code: "NotFound", message: "dlmm/claim-fee has no local builder; use createHedgeClient" });
   });
 });

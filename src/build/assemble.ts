@@ -1,4 +1,12 @@
-import { ComputeBudgetProgram, PublicKey, type TransactionInstruction, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
+import {
+  type AddressLookupTableAccount,
+  ComputeBudgetProgram,
+  PACKET_DATA_SIZE,
+  PublicKey,
+  type TransactionInstruction,
+  TransactionMessage,
+  VersionedTransaction,
+} from "@solana/web3.js";
 import { ApiError } from "../errors";
 import type { BuildEnv } from "./context";
 import { describeTxFailure } from "./program-errors";
@@ -32,7 +40,7 @@ async function priorityFeeMicroLamports(env: BuildEnv, writableAccounts: PublicK
 }
 
 /** 3 RPC: fee sample, simulation, blockhash. Builds a v0 transaction paid by `env.payer` and never signs it. */
-export async function assemble(env: BuildEnv, instructions: TransactionInstruction[]): Promise<Assembled> {
+export async function assemble(env: BuildEnv, instructions: TransactionInstruction[], lookupTables: AddressLookupTableAccount[] = []): Promise<Assembled> {
   const writableAccounts = [
     ...new Map(
       [env.payer, ...instructions.flatMap((ix) => ix.keys.filter((key) => key.isWritable).map((key) => key.pubkey))].map((key) => [key.toBase58(), key]),
@@ -45,7 +53,7 @@ export async function assemble(env: BuildEnv, instructions: TransactionInstructi
         payerKey: env.payer,
         recentBlockhash: blockhash,
         instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports }), ...instructions],
-      }).compileToV0Message(),
+      }).compileToV0Message(lookupTables),
     );
 
   // Simulating before fetching the blockhash gives signing its full lifetime and sizes the CU limit to this transaction.
@@ -62,4 +70,27 @@ export async function assemble(env: BuildEnv, instructions: TransactionInstructi
   const units = Math.min(MAX_COMPUTE_UNITS, Math.max(consumed, Math.ceil(consumed * 1.2) + 10_000));
   const { blockhash } = await env.connection.getLatestBlockhash("confirmed");
   return { transaction: Buffer.from(compile(blockhash, units).serialize()).toString("base64"), simulation: { unitsConsumed }, blockhash };
+}
+
+/**
+ * Whether the instructions, with the compute-budget pair `assemble` prepends, serialize into one packet.
+ * Measured rather than caught: `serialize()` throws only once the message alone overruns, missing the
+ * signatures that can push it over.
+ */
+export function fitsInTransaction(payer: PublicKey, instructions: TransactionInstruction[], lookupTables: AddressLookupTableAccount[] = []): boolean {
+  try {
+    const message = new TransactionMessage({
+      payerKey: payer,
+      recentBlockhash: PublicKey.default.toBase58(),
+      instructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: MAX_COMPUTE_UNITS }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: MAX_MICRO_LAMPORTS }),
+        ...instructions,
+      ],
+    }).compileToV0Message(lookupTables);
+    return new VersionedTransaction(message).serialize().length <= PACKET_DATA_SIZE;
+  } catch (e) {
+    if (e instanceof RangeError) return false;
+    throw e;
+  }
 }

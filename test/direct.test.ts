@@ -152,7 +152,7 @@ const jupiterOk = () =>
 const ataOf = (owner: PublicKey, mint: PublicKey) =>
   PublicKey.findProgramAddressSync(
     [owner.toBuffer(), TOKEN_PROGRAM.toBuffer(), mint.toBuffer()],
-    new PublicKey("ATokenGPvbd57otTDvTQY79P2iYLJXyNPtGWtCKpvP7"),
+    new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"),
   )[0];
 
 async function chain(programId = PROGRAM) {

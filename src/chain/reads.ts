@@ -19,7 +19,7 @@ import {
 } from "./decode";
 import { getConfigPda, getShareMintPda } from "./pda";
 
-const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvbd57otTDvTQY79P2iYLJXyNPtGWtCKpvP7");
+const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 /** RPC cap for getMultipleAccountsInfo, and Jupiter's /tokens/v2/search cap. */
 const MAX_PER_CALL = 100;
 // DepositRequest / WithdrawalRequest layout: 8 discriminator + 32 authority, then vault.

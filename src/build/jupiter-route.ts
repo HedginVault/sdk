@@ -38,9 +38,31 @@ const PUMP_FUN = "Pump.fun";
 
 const is = (data: Buffer | number[], discriminator: number[]) => discriminator.every((v, i) => v === data[i]);
 
-/** Quotes Jupiter's best route across every venue that runs under the vault, split and multi-hop included. */
-export const quoteSwap = (env: Pick<BuildEnv, "fetch" | "jupiter">, inputMint: PublicKey, outputMint: PublicKey, amount: bigint, slippageBps: number) =>
-  requestQuote(env, { inputMint, outputMint, amount, slippageBps, excludeDexes: CPI_REJECTED_DEXES, maxAccounts: SWAP_MAX_ACCOUNTS });
+/**
+ * Caps the accounts of a route that shares its transaction with zap out's DLMM remove and claim
+ * instructions. Every route runs as a CPI beside the vault's own accounts, so an uncapped one can
+ * overflow the packet.
+ */
+const TOKEN_LEDGER_MAX_ACCOUNTS = 30;
+
+const SET_TOKEN_LEDGER = [228, 85, 185, 112, 78, 79, 77, 2];
+const JUPITER_PROGRAM_ID = new PublicKey("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4");
+
+/**
+ * Quotes Jupiter's best route across every venue that runs under the vault, split and multi-hop
+ * included. A token-ledger swap rides in a DLMM exit transaction, so it takes the tighter account
+ * cap, and it spends from the vault's own account, so it cannot run as the swap authority the
+ * Pump.fun bonding curve needs.
+ */
+export const quoteSwap = (env: Pick<BuildEnv, "fetch" | "jupiter">, inputMint: PublicKey, outputMint: PublicKey, amount: bigint, slippageBps: number, tokenLedger = false) =>
+  requestQuote(env, {
+    inputMint,
+    outputMint,
+    amount,
+    slippageBps,
+    excludeDexes: tokenLedger ? [...CPI_REJECTED_DEXES, PUMP_FUN] : CPI_REJECTED_DEXES,
+    maxAccounts: tokenLedger ? TOKEN_LEDGER_MAX_ACCOUNTS : SWAP_MAX_ACCOUNTS,
+  });
 
 /**
  * Reorders Jupiter's account list into the remaining accounts `jupiter_swap` expects. Some routes
@@ -68,7 +90,7 @@ async function readLookupTables(env: BuildEnv, addresses: string[]): Promise<Add
   });
 }
 
-const createAtaIdempotentIx = (payer: PublicKey, owner: PublicKey, mint: PublicKey, tokenProgram: PublicKey) =>
+export const createAtaIdempotentIx = (payer: PublicKey, owner: PublicKey, mint: PublicKey, tokenProgram: PublicKey) =>
   new TransactionInstruction({
     programId: ASSOCIATED_TOKEN_PROGRAM_ID,
     keys: [
@@ -132,13 +154,42 @@ export interface SwapMints {
  * 1-2 HTTP and 1-2 RPC: the quote, the route's instructions, its lookup tables, and the Pump.fun AMM
  * accumulator when the route uses it. Refuses any route that needs user-level accounts.
  */
-export async function jupiterSwapIx(env: BuildEnv, vault: VaultCtx, delegate: PublicKey | null, mints: SwapMints, amount: bigint, slippageBps: number) {
-  const route = await quoteSwap(env, mints.source, mints.destination, amount, slippageBps);
+export const jupiterSwapIx = async (env: BuildEnv, vault: VaultCtx, delegate: PublicKey | null, mints: SwapMints, amount: bigint, slippageBps: number) => {
+  const { tokenLedgerInstruction: _, ...swap } = await swapIx(env, vault, delegate, mints, amount, slippageBps, false);
+  return swap;
+};
+
+/**
+ * The swap with Jupiter's token ledger: `tokenLedgerInstruction` snapshots the vault's source ATA,
+ * and the swap later spends only what arrived after it, never idle funds. Both must share one transaction.
+ */
+export const jupiterTokenLedgerSwapIx = async (env: BuildEnv, vault: VaultCtx, delegate: PublicKey | null, mints: SwapMints, quotedAmount: bigint, slippageBps: number) => {
+  const { tokenLedgerInstruction, ...swap } = await swapIx(env, vault, delegate, mints, quotedAmount, slippageBps, true);
+  if (!tokenLedgerInstruction) throw new ApiError(502, "JupiterInvalidTokenLedger", "Jupiter did not return a token-ledger instruction");
+  return { ...swap, tokenLedgerInstruction };
+};
+
+/** A token-ledger route must snapshot the vault's own source ATA, unsigned, into the account the route reads it from. */
+function isValidLedger(swap: TransactionInstruction, ledger: TransactionInstruction | null, sourceTokenAccount: PublicKey): ledger is TransactionInstruction {
+  return (
+    is(swap.data, ROUTE_WITH_TOKEN_LEDGER) &&
+    ledger !== null &&
+    ledger.programId.equals(JUPITER_PROGRAM_ID) &&
+    is(ledger.data, SET_TOKEN_LEDGER) &&
+    ledger.keys.length === 2 &&
+    !ledger.keys.some((k) => k.isSigner) &&
+    ledger.keys[1]?.pubkey.equals(sourceTokenAccount) === true &&
+    swap.keys[7]?.pubkey.equals(ledger.keys[0]?.pubkey ?? PublicKey.default) === true
+  );
+}
+
+async function swapIx(env: BuildEnv, vault: VaultCtx, delegate: PublicKey | null, mints: SwapMints, amount: bigint, slippageBps: number, tokenLedger: boolean) {
+  const route = await quoteSwap(env, mints.source, mints.destination, amount, slippageBps, tokenLedger);
   const swapAuthority = route.view.routeLabels.includes(PUMP_FUN) ? getSwapAuthorityPda(vault.key, env.programId) : null;
   // The account Jupiter swaps as: its token accounts hold the funds while the route runs.
   const user = swapAuthority ?? vault.key;
   const destinationTokenAccount = getAssociatedTokenAddress(user, mints.destination, mints.destinationTokenProgram);
-  const res = await requestSwapInstructions(env, route, user, destinationTokenAccount, false);
+  const res = await requestSwapInstructions(env, route, user, destinationTokenAccount, tokenLedger);
   const swap = toInstruction(res.swapInstruction);
   // The swap instruction creates the destination ATA itself (`init_if_needed`, paid by the authority),
   // so Jupiter's create of it, funded by the PDA, is redundant.
@@ -152,7 +203,11 @@ export async function jupiterSwapIx(env: BuildEnv, vault: VaultCtx, delegate: Pu
   const shared = [SHARED_ACCOUNTS_ROUTE, SHARED_ACCOUNTS_EXACT_OUT_ROUTE, SHARED_ACCOUNTS_ROUTE_WITH_TOKEN_LEDGER].some((d) => is(swap.data, d));
   if (shared || requiredSetup.length > intermediateAtas.length || res.cleanupInstruction)
     throw new ApiError(502, "JupiterUnsupportedCpiRoute", "Jupiter returned a route that requires user-level accounts instead of a direct vault CPI");
-  if (res.tokenLedgerInstruction) throw new ApiError(502, "JupiterUnexpectedTokenLedger", "Jupiter returned an unexpected token-ledger instruction");
+  const ledger = res.tokenLedgerInstruction ? toInstruction(res.tokenLedgerInstruction) : null;
+  if (tokenLedger) {
+    if (swapAuthority || !isValidLedger(swap, ledger, getAssociatedTokenAddress(vault.key, mints.source, mints.sourceTokenProgram)))
+      throw new ApiError(502, "JupiterInvalidTokenLedger", "Jupiter returned an invalid token-ledger route");
+  } else if (ledger) throw new ApiError(502, "JupiterUnexpectedTokenLedger", "Jupiter returned an unexpected token-ledger instruction");
 
   const remainingAccounts = extractRemainingAccounts(swap);
   const fromDeposit = mints.source.equals(vault.depositMint);
@@ -176,5 +231,5 @@ export async function jupiterSwapIx(env: BuildEnv, vault: VaultCtx, delegate: Pu
     .instruction();
   const [lookupTables, pumpSetup] = await Promise.all([readLookupTables(env, res.addressLookupTableAddresses), pumpAmmSetupIxs(env, user, remainingAccounts)]);
   const setup = [...intermediateAtas.map(({ mint, tokenProgram }) => createAtaIdempotentIx(env.payer, user, mint, tokenProgram)), ...pumpSetup];
-  return { ix, lookupTables, setup };
+  return { ix, lookupTables, setup, tokenLedgerInstruction: ledger };
 }

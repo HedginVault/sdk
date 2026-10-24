@@ -130,10 +130,21 @@ export const signatureOf = (bytes: Buffer | Uint8Array) => bs58.encode(Versioned
 export function fakeConnection(accounts: Map<string, AccountInfo<Buffer>>, options: RpcOptions = {}) {
   const calls: string[] = [];
   const sent: Buffer[] = [];
+  /** Every account key read, in order. */
+  const reads: string[] = [];
   const context = { slot: 1 };
+  const read = (k: PublicKey) => {
+    reads.push(k.toBase58());
+    return accounts.get(k.toBase58()) ?? null;
+  };
   const connection = {
-    getAccountInfo: async (k: PublicKey) => accounts.get(k.toBase58()) ?? null,
-    getMultipleAccountsInfo: async (keys: PublicKey[]) => keys.map((k) => accounts.get(k.toBase58()) ?? null),
+    getAccountInfo: async (k: PublicKey) => read(k),
+    getMultipleAccountsInfo: async (keys: PublicKey[]) => keys.map(read),
+    getEpochInfo: async () => ({ epoch: 500, slotIndex: 0, slotsInEpoch: 432_000, absoluteSlot: 1, blockHeight: 1 }),
+    getAddressLookupTable: async (k: PublicKey) => {
+      const table = read(k);
+      return { context, value: table && new AddressLookupTableAccount({ key: k, state: AddressLookupTableAccount.deserialize(table.data) }) };
+    },
     getProgramAccounts: async (owner: PublicKey, config: { filters: { memcmp: { offset: number; bytes: string } }[] }) =>
       [...accounts]
         .filter(([, a]) => a.owner.equals(owner) && config.filters.every(({ memcmp }) => a.data.subarray(memcmp.offset).subarray(0, bs58.decode(memcmp.bytes).length).equals(Buffer.from(bs58.decode(memcmp.bytes)))))
@@ -162,7 +173,7 @@ export function fakeConnection(accounts: Map<string, AccountInfo<Buffer>>, optio
     },
     getTransaction: async () => ({ meta: { logMessages: options.landedLogs ?? [] } }),
   };
-  return { connection: connection as unknown as Connection, calls, sent };
+  return { connection: connection as unknown as Connection, calls, sent, reads };
 }
 
 export const plain = (value: unknown): unknown => {
@@ -250,6 +261,7 @@ export async function run(
   return {
     outcome,
     progress,
+    reads: fake.reads,
     calls: fake.calls,
     sent: fake.sent,
     txs: fake.sent.map((tx) => decodeTx(tx, fixtures)),

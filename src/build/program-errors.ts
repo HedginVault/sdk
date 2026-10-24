@@ -150,6 +150,8 @@ const PROGRAMS: Record<string, ProgramErrors> = {
   },
 };
 
+export const COMPUTE_LIMIT_MESSAGE = "This action is too large for one transaction. Try a smaller amount or range.";
+
 /** Failures with no custom program code: the runtime refused the transaction itself. */
 const RUNTIME: ReadonlyArray<readonly [RegExp, string]> = [
   [/AccountNotFound|no record of a prior credit/i, "Your wallet needs some SOL to pay the network fee. Add SOL and try again."],
@@ -157,7 +159,7 @@ const RUNTIME: ReadonlyArray<readonly [RegExp, string]> = [
   [/InsufficientFundsForRent|insufficient funds for rent/i, "There is not enough SOL in your wallet to open the accounts this needs. Add SOL and try again."],
   [/BlockhashNotFound|Blockhash not found/i, "The transaction took too long to approve and expired. Try again."],
   [/AlreadyProcessed|already been processed/i, "This transaction was already sent. Check your wallet activity before trying again."],
-  [/ComputationalBudgetExceeded|exceeded CUs meter|computational budget exceeded/i, "This action is too large for one transaction. Try a smaller amount or range."],
+  [/ComputationalBudgetExceeded|exceeded CUs meter|computational budget exceeded/i, COMPUTE_LIMIT_MESSAGE],
   [/WouldExceed\w*CostLimit/i, "The network is busy right now. Try again in a moment."],
   [/"InsufficientFunds"|insufficient (funds|lamports)/i, "There are not enough funds for this transaction. Check your balance and try again."],
 ];

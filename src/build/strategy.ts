@@ -23,9 +23,9 @@ import { PHOENIX_GLOBAL_CONFIG, readCanonicalMint } from "./phoenix-accounts";
 type StrategyAccount = IdlAccounts<HedgeVault>["strategy"];
 
 const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-const DLMM_PROGRAM_ID = new PublicKey("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo");
-const DLMM_EVENT_AUTHORITY = new PublicKey("D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6");
-const LIMIT_ORDER_DISCRIMINATOR = Buffer.from([137, 183, 212, 91, 115, 29, 141, 227]);
+export const DLMM_PROGRAM_ID = new PublicKey("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo");
+export const DLMM_EVENT_AUTHORITY = new PublicKey("D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6");
+export const LIMIT_ORDER_DISCRIMINATOR = Buffer.from([137, 183, 212, 91, 115, 29, 141, 227]);
 
 const writable = (pubkey: PublicKey): AccountMeta => ({ pubkey, isWritable: true, isSigner: false });
 const readonly = (pubkey: PublicKey): AccountMeta => ({ pubkey, isWritable: false, isSigner: false });
@@ -59,7 +59,7 @@ async function readAccount(env: BuildEnv, key: PublicKey, what: string) {
 }
 
 /** The lb_pair of a DLMM position or limit order and its mints, from which the pair strategies follow. */
-async function readDlmmPair(env: BuildEnv, protocolAccount: PublicKey, kind: "position" | "limitOrder") {
+async function readDlmmPair(env: BuildEnv, protocolAccount: PublicKey, kind: "position" | "limitOrder"): Promise<DlmmPair> {
   const info = await readAccount(env, protocolAccount, kind === "position" ? "Position" : "Limit order");
   let lbPair: PublicKey;
   if (kind === "position") {
@@ -74,25 +74,46 @@ async function readDlmmPair(env: BuildEnv, protocolAccount: PublicKey, kind: "po
   return { lbPair, tokenXMint: pair.tokenXMint, tokenYMint: pair.tokenYMint };
 }
 
-/** The remaining accounts `vault_close_strategy` takes for each strategy type, and the delegate permission it checks. */
-async function closeAccounts(env: BuildEnv, vault: VaultCtx, strategyType: StrategyAccount["strategyType"]): Promise<{ permission: number; remaining: AccountMeta[] }> {
+export interface DlmmPair {
+  lbPair: PublicKey;
+  tokenXMint: PublicKey;
+  tokenYMint: PublicKey;
+}
+
+/** A DLMM position and a DLMM limit order close through the same six accounts. */
+function dlmmCloseAccounts(env: BuildEnv, vault: VaultCtx, protocolAccount: PublicKey, pair: DlmmPair): AccountMeta[] {
   // The hedge_vault program id stands for "no strategy" on the deposit mint side.
   const pairStrategyMeta = (mint: PublicKey) => readonly(mint.equals(vault.depositMint) ? env.programId : getStrategyPda(vault.key, mint, env.programId));
-  // A DLMM position and a DLMM limit order close through the same six accounts.
-  const dlmm = async (protocolAccount: PublicKey, kind: "position" | "limitOrder") => {
-    const pair = await readDlmmPair(env, protocolAccount, kind);
-    return {
-      permission: DELEGATE_METEORA_DLMM,
-      remaining: [
-        writable(protocolAccount),
-        readonly(DLMM_PROGRAM_ID),
-        readonly(DLMM_EVENT_AUTHORITY),
-        readonly(pair.lbPair),
-        pairStrategyMeta(pair.tokenXMint),
-        pairStrategyMeta(pair.tokenYMint),
-      ],
-    };
-  };
+  return [
+    writable(protocolAccount),
+    readonly(DLMM_PROGRAM_ID),
+    readonly(DLMM_EVENT_AUTHORITY),
+    readonly(pair.lbPair),
+    pairStrategyMeta(pair.tokenXMint),
+    pairStrategyMeta(pair.tokenYMint),
+  ];
+}
+
+/** `vault_close_strategy` of the DLMM position or limit order `protocolAccount`, whose pair the caller already read. */
+export const closeDlmmStrategyIx = (env: BuildEnv, vault: VaultCtx, operator: Operator, protocolAccount: PublicKey, pair: DlmmPair) =>
+  env.program.methods
+    .vaultCloseStrategy()
+    .accounts({
+      authority: env.payer,
+      config: getConfigPda(env.programId),
+      vault: vault.key,
+      strategy: getStrategyPda(vault.key, protocolAccount, env.programId),
+      delegate: delegateFor(operator, DELEGATE_METEORA_DLMM),
+    })
+    .remainingAccounts(dlmmCloseAccounts(env, vault, protocolAccount, pair))
+    .instruction();
+
+/** The remaining accounts `vault_close_strategy` takes for each strategy type, and the delegate permission it checks. */
+async function closeAccounts(env: BuildEnv, vault: VaultCtx, strategyType: StrategyAccount["strategyType"]): Promise<{ permission: number; remaining: AccountMeta[] }> {
+  const dlmm = async (protocolAccount: PublicKey, kind: "position" | "limitOrder") => ({
+    permission: DELEGATE_METEORA_DLMM,
+    remaining: dlmmCloseAccounts(env, vault, protocolAccount, await readDlmmPair(env, protocolAccount, kind)),
+  });
   if (strategyType.meteoraDlmm) return dlmm(strategyType.meteoraDlmm.position, "position");
   // The program closes a limit order only once every bin is empty, i.e. after cancelling them all.
   if (strategyType.meteoraDlmmLimitOrder) return dlmm(strategyType.meteoraDlmmLimitOrder.limitOrder, "limitOrder");

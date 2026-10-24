@@ -1,7 +1,7 @@
 import type { IdlAccounts, Program } from "@coral-xyz/anchor";
 import { type AccountInfo, type Connection, PublicKey } from "@solana/web3.js";
 import { z } from "zod";
-import type { BuildAction, ActionRequest } from "../actions";
+import type { ActionRequest, BuildAction, ContinuationRequest } from "../actions";
 import type { VaultAccount } from "../chain/decode";
 import { getDelegatePda, getShareMintPda } from "../chain/pda";
 import { decodeVault, hedgeProgram } from "../chain/reads";
@@ -22,14 +22,16 @@ export interface BuildContext {
   jupiter: JupiterConfig;
   /** Phoenix's perp-api: market list and trader onboarding. */
   phoenixApiUrl: string;
+  /** The protocol address lookup table that shrinks DLMM exit transactions; none when unset. */
+  protocolLookupTable?: PublicKey;
 }
 
 export type BuildEnv = BuildContext & { program: Program<HedgeVault> };
 
 export const buildEnv = (ctx: BuildContext): BuildEnv => ({ ...ctx, program: hedgeProgram(ctx.connection, ctx.programId) });
 
-/** The request body of one action, as `toBuildRequest` sends it. */
-export type ActionBody<A extends BuildAction> = Omit<Extract<ActionRequest, { action: A }>, "action">;
+/** The request body of one action or continuation, as `toBuildRequest` or a step's `next` sends it. */
+export type ActionBody<A extends BuildAction | ContinuationRequest["action"]> = Omit<Extract<ActionRequest | ContinuationRequest, { action: A }>, "action">;
 
 export const pubkey = z.string().refine(
   (s) => {

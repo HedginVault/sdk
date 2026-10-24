@@ -32,7 +32,7 @@ export interface ChainContext {
 }
 
 export type AccountsCoder = Program<HedgeVault>["coder"]["accounts"];
-type Ctx = ChainContext & { coder: AccountsCoder };
+export type Ctx = ChainContext & { coder: AccountsCoder };
 
 /** Coders and instruction builders only; this Program has no wallet, so it never signs or sends. */
 export const hedgeProgram = (connection: Connection, programId: PublicKey) =>
@@ -52,7 +52,7 @@ async function getAccounts(ctx: Ctx, keys: PublicKey[]): Promise<(AccountInfo<Bu
 }
 
 /** Symbols from Jupiter token search. A failed or malformed response leaves mints unresolved rather than failing the read. */
-async function jupiterSymbols(ctx: Ctx, mints: string[]): Promise<Map<string, string>> {
+export async function jupiterSymbols(ctx: Ctx, mints: string[]): Promise<Map<string, string>> {
   const host = ctx.jupiterApiKey ? "https://api.jup.ag" : "https://lite-api.jup.ag";
   const headers: Record<string, string> = ctx.jupiterApiKey ? { "x-api-key": ctx.jupiterApiKey } : {};
   const out = new Map<string, string>();

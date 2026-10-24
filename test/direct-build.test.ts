@@ -313,10 +313,10 @@ describe("direct execute transport", () => {
     const fake = fakeConnection(await chain());
     const client = createDirectClient({ connection: fake.connection });
     const outcome = await client.execute(
-      // @ts-expect-error dlmm/claim-fee still needs createHedgeClient
-      { action: "dlmm/claim-fee", vault: V, position: POSITION.toBase58() },
+      // @ts-expect-error phoenix/onboard goes through onboardPhoenix, not execute
+      { action: "phoenix/onboard", vault: V },
       keypairSigner(manager),
     );
-    expect(outcome).toEqual({ kind: "failed", signatures: [], code: "NotFound", message: "dlmm/claim-fee has no local builder; use createHedgeClient" });
+    expect(outcome).toEqual({ kind: "failed", signatures: [], code: "NotFound", message: "phoenix/onboard has no local builder; use createHedgeClient" });
   });
 });

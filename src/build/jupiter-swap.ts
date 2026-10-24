@@ -11,10 +11,8 @@ import { assemble, type Assembled, fitsInTransaction } from "./assemble";
 import { amountString, assertOperator, type BuildEnv, DELEGATE_JUPITER, delegateFor, loadVaultCtx, type Operator, pubkey, tokenProgramOf, type VaultCtx } from "./context";
 import { jupiterInitializeIx } from "./jupiter-initialize";
 import { jupiterSwapIx, quoteSwap, type SwapMints } from "./jupiter-route";
-import { closeJupiterStrategyIx } from "./strategy";
+import { closeJupiterStrategyIx, DLMM_PROGRAM_ID, LIMIT_ORDER_DISCRIMINATOR } from "./strategy";
 
-const DLMM_PROGRAM_ID = new PublicKey("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo");
-const LIMIT_ORDER_DISCRIMINATOR = Buffer.from([137, 183, 212, 91, 115, 29, 141, 227]);
 const STRATEGY_VAULT_OFFSET = 8;
 const TOKEN_ACCOUNT_SPAN = 165;
 const TRANSFER_FEE_AMOUNT_EXTENSION = 2;
@@ -31,7 +29,7 @@ export type SwapStep = Assembled & {
 };
 
 /** Zero is a legacy unset value; the program then applies DEFAULT_MAX_SLIPPAGE_BPS (10%). */
-const maxSlippageBps = (env: Pick<BuildEnv, "program">, info: { data: Buffer } | null | undefined) => {
+export const maxSlippageBps = (env: Pick<BuildEnv, "program">, info: { data: Buffer } | null | undefined) => {
   if (!info) throw new Error("Protocol config account is missing");
   return env.program.coder.accounts.decode<ConfigAccount>("config", info.data).maxSlippageBps || 1_000;
 };
@@ -54,11 +52,15 @@ interface OpenPairStrategy {
   mints: string[] | null;
 }
 
-/** Every DLMM action needs the Jupiter strategy of each non-deposit pair mint; an unreadable pair counts as using every mint. */
-const mintStillUsed = (open: OpenPairStrategy[], mint: string) => open.some((s) => s.mints === null || s.mints.includes(mint));
+/**
+ * Every DLMM action needs the Jupiter strategy of each non-deposit pair mint; an unreadable pair counts
+ * as using every mint. `closing` is a strategy the same batch closes first.
+ */
+export const mintStillUsed = (open: OpenPairStrategy[], mint: string, closing?: string) =>
+  open.some((s) => s.strategy !== closing && (s.mints === null || s.mints.includes(mint)));
 
 /** 3 RPC: the vault's strategies, its positions and limit orders, then their pools. */
-async function readOpenPairStrategies(env: BuildEnv, vault: PublicKey): Promise<OpenPairStrategy[]> {
+export async function readOpenPairStrategies(env: BuildEnv, vault: PublicKey): Promise<OpenPairStrategy[]> {
   const coder = env.program.coder.accounts;
   const rows = await env.connection.getProgramAccounts(env.programId, {
     filters: [{ memcmp: coder.memcmp("strategy") }, { memcmp: { offset: STRATEGY_VAULT_OFFSET, bytes: vault.toBase58() } }],

@@ -26,7 +26,8 @@ async function buildLocal<A extends LocalAction>(env: BuildEnv, action: A, body:
     const issue = parsed.error.issues[0];
     throw new ApiError(400, "Validation", `${issue?.path.join(".") || "body"}: ${issue?.message ?? "invalid"}`);
   }
-  return [{ ...(await builder.build(env, parsed.data)), ticket: LOCAL_TICKET }];
+  const built = await builder.build(env, parsed.data);
+  return (Array.isArray(built) ? built : [built]).map((step) => ({ ...step, ticket: LOCAL_TICKET }));
 }
 
 /**

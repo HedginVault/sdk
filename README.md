@@ -99,6 +99,7 @@ Supported so far:
 | `getVault(vault)` | The vault, protocol config, deposit and share mints, and idle token account. |
 | `getRequests(vault)` | Queued deposit and withdrawal requests for the vault. |
 | `getPhoenix(vault)` | Phoenix strategy status, markets, open orders, margin and armed TP/SL, from chain and Phoenix's perp-api. |
+| `getPool(vault, lbPair)` | A Meteora DLMM pool's tokens, bin step, active bin and price, from chain. `vault` is unused. |
 
 Differences from the API:
 
@@ -108,7 +109,7 @@ Differences from the API:
 - `depositSymbol` comes from Jupiter's token search (`lite-api.jup.ag`, or `api.jup.ag` when you pass `jupiterApiKey`). When Jupiter is down it falls back to a short mint label such as `EPjF…Dt1v`, as the app does.
 
 Options: `programId` points at another deployment of the program, `fetch` replaces the
-global `fetch` used for Jupiter and Phoenix, `jupiterHost` replaces the Jupiter host for quotes and swaps, `phoenixApiUrl` replaces Phoenix's perp-api host (`https://perp-api.phoenix.trade`), and `maxComputeUnitPriceMicroLamports` caps the priority fee
+global `fetch` used for Jupiter and Phoenix, `jupiterHost` replaces the Jupiter host for quotes and swaps, `phoenixApiUrl` replaces Phoenix's perp-api host (`https://perp-api.phoenix.trade`), `protocolLookupTable` names the protocol address lookup table that DLMM zaps use to fit their swap, and `maxComputeUnitPriceMicroLamports` caps the priority fee
 `execute` will sign. An address that is not a vault of the program fails with `ApiError` code
 `NotFound`, the same code the API uses.
 
@@ -142,6 +143,8 @@ These actions build locally:
 | `phoenix/order` | The vault authority, or a delegate with Phoenix permission. |
 | `phoenix/tpsl` | The vault authority, or a delegate with Phoenix permission. |
 | `phoenix/cancel` | The vault authority, or a delegate with Phoenix permission. |
+| `dlmm/initialize`, `dlmm/open`, `dlmm/add`, `dlmm/remove`, `dlmm/flip`, `dlmm/claim-fee`, `dlmm/zap-out`, `dlmm/close` | The vault authority, or a delegate with Meteora DLMM permission. |
+| `dlmm/limit-order/place`, `dlmm/limit-order/cancel` | The vault authority, or a delegate with Meteora DLMM permission. |
 
 `jupiter/swap` and `jupiter/sweep` call Jupiter's Swap API (`lite-api.jup.ag`, or `api.jup.ag`
 with `x-api-key` when you pass `jupiterApiKey`; `jupiterHost` overrides the host) for the quote
@@ -161,8 +164,19 @@ the onboarding policy below, the SDK submits it to Phoenix (which co-signs and b
 it), and the SDK confirms it through your `Connection`. A submit whose reply is lost is
 polled on chain, never resubmitted.
 
-Every other action still needs `createHedgeClient`; passing one to the direct `execute` is a
-type error. The program is the final check: the signer checks above only give a clear error
+The DLMM actions read the pool, position and bin arrays from chain with Meteora's SDK
+(`@meteora-ag/dlmm`, loaded on first use). Wide positions build as one batch that `execute`
+inspects whole before sending: `dlmm/open` initializes, extends and funds chunk by chunk, and
+withdrawals, claims and closes go range by range. Later steps of a batch skip simulation and
+are checked by the send's preflight, as the API does. The continuations `dlmm/extend`,
+`dlmm/add-range`, `dlmm/zap-out/swap`, and `jupiter/sweep` after a zap-out build locally too.
+A delegate needs Jupiter permission as well for a zap's swap or a missing pair-token strategy.
+`dlmm/zap-out` and `dlmm/remove` with `slippageBps` put a token-ledger Jupiter swap in the same
+transaction; without `protocolLookupTable` they still build, only larger, and fail with
+`TransactionTooLarge` naming the option when nothing fits.
+
+Every `ActionRequest` builds locally. Reads not in the table above, such as `searchPools` and
+`getToken`, still need `createHedgeClient`. The program is the final check: the signer checks above only give a clear error
 before simulation. A send lost to an RPC error is polled by its signature, never resent.
 
 ## Actions

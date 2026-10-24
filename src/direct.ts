@@ -3,13 +3,14 @@ import { type ActionRequest, toBuildRequest } from "./actions";
 import { jupiterConfig } from "./build/jupiter-api";
 import { readQuote } from "./build/jupiter-swap";
 import { DEFAULT_PHOENIX_API_URL, phoenixOnboardTransport } from "./build/phoenix-api";
+import { readPoolInfo } from "./build/meteora";
 import { readPhoenix } from "./build/phoenix-read";
 import type { LocalAction } from "./build/registry";
 import { localTransport } from "./build/transport";
 import type { QuoteRequest } from "./client";
 import { chainContext, hedgeProgram, readRequestQueue, readVaultDetail, readVaults } from "./chain/reads";
 import { type ExecuteOptions, type Outcome, executeBuild, executePhoenixOnboard } from "./executor";
-import type { PhoenixManager, Quote, RequestQueue, VaultDetail, VaultSummary } from "./schemas";
+import type { PhoenixManager, PoolInfo, Quote, RequestQueue, VaultDetail, VaultSummary } from "./schemas";
 import { DEFAULT_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS, HEDGE_VAULT_PROGRAM_ID, type TransactionSigner } from "./signer";
 
 /** An action `DirectHedgeClient.execute` can build without the API. Others need `createHedgeClient`. */
@@ -30,6 +31,11 @@ export interface DirectClientOptions {
   phoenixApiUrl?: string;
   /** Refuse transactions whose priority fee exceeds this. */
   maxComputeUnitPriceMicroLamports?: bigint;
+  /**
+   * The protocol address lookup table, as the app's `PROTOCOL_LOOKUP_TABLE`. DLMM withdrawals with a
+   * zap and `dlmm/zap-out` use it to fit their swap; without it they still build, only larger.
+   */
+  protocolLookupTable?: string;
 }
 
 /** The reads that work straight from chain, with the same return types as `HedgeClient`. */
@@ -42,6 +48,8 @@ export interface DirectHedgeClient {
   getPhoenix(vault: string): Promise<PhoenixManager>;
   /** A Jupiter quote for a swap by this vault, slippage capped at the protocol's `maxSlippageBps`. */
   getQuote(request: QuoteRequest): Promise<Quote>;
+  /** One DLMM pool with its active bin, read from chain, for choosing a `dlmm/open` range. `vault` is unused; it keeps `HedgeClient`'s signature. */
+  getPool(vault: string, lbPair: string): Promise<PoolInfo>;
   /**
    * Builds the action locally from chain state, then inspects, signs, sends and confirms it through
    * the connection, under the same signing policy as `HedgeClient.execute`. Never rebuilds after an
@@ -63,7 +71,15 @@ export function createDirectClient(options: DirectClientOptions): DirectHedgeCli
   const fetcher: typeof fetch = options.fetch ?? ((input, init) => fetch(input, init));
   const ctx = chainContext({ connection: options.connection, programId, fetch: fetcher, jupiterApiKey: options.jupiterApiKey });
   const jupiter = jupiterConfig(options.jupiterApiKey, options.jupiterHost);
-  const base = { connection: options.connection, programId, fetch: fetcher, jupiter, phoenixApiUrl: options.phoenixApiUrl?.trim() || DEFAULT_PHOENIX_API_URL };
+  const protocolLookupTable = options.protocolLookupTable?.trim();
+  const base = {
+    connection: options.connection,
+    programId,
+    fetch: fetcher,
+    jupiter,
+    phoenixApiUrl: options.phoenixApiUrl?.trim() || DEFAULT_PHOENIX_API_URL,
+    ...(protocolLookupTable && { protocolLookupTable: new PublicKey(protocolLookupTable) }),
+  };
   const reads = { ...base, program: hedgeProgram(options.connection, programId) };
   const policy = (signer: TransactionSigner) => ({ manager: signer.publicKey, programId: programId.toBase58(), maxComputeUnitPriceMicroLamports });
   const buildContext = (signer: TransactionSigner, executeOptions?: ExecuteOptions) => ({ ...base, payer: signer.publicKey, now: executeOptions?.now ?? Date.now });
@@ -73,6 +89,7 @@ export function createDirectClient(options: DirectClientOptions): DirectHedgeCli
     getRequests: (vault) => readRequestQueue(ctx, vault),
     getPhoenix: (vault) => readPhoenix(reads, vault),
     getQuote: (request) => readQuote(reads, request),
+    getPool: (_vault, lbPair) => readPoolInfo(ctx, lbPair),
     execute: (request, signer, executeOptions) =>
       executeBuild(toBuildRequest(request), localTransport(buildContext(signer, executeOptions)), signer, policy(signer), executeOptions),
     onboardPhoenix: (vault, signer, executeOptions) =>

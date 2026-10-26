@@ -309,14 +309,42 @@ describe("direct execute transport", () => {
     expect(outcome.kind).toBe("unresolved");
   });
 
-  it("does not compile an action without a local builder, and refuses it at runtime", async () => {
+  it("builds unsigned transactions the payer must sign, and sends nothing", async () => {
+    const fake = fakeConnection(await chain());
+    const built = await createDirectClient({ connection: fake.connection }).vaultClose({ vault: V }, { payer: manager.publicKey });
+    const [step] = built.steps;
+    expect(built.steps).toHaveLength(1);
+    expect(step?.transaction.message.staticAccountKeys[0]?.toBase58()).toBe(M);
+    expect(step?.transaction.signatures.every((sig) => sig.every((byte) => byte === 0))).toBe(true);
+    expect(fake.sent).toEqual([]);
+  });
+
+  it("returns the same program instruction as the build, without the compute budget", async () => {
+    const accounts = await chain();
+    const client = createDirectClient({ connection: fakeConnection(accounts).connection });
+    const { instructions } = await client.instructions.vaultClose({ vault: V }, { payer: manager.publicKey });
+    const built = await client.vaultClose({ vault: V }, { payer: manager.publicKey });
+    const [ix] = instructions;
+    expect(instructions).toHaveLength(1);
+    expect(ix?.programId.toBase58()).toBe(P);
+    const message = built.steps[0]?.transaction.message;
+    const compiled = message?.compiledInstructions.at(-1);
+    expect(compiled && Buffer.from(compiled.data)).toEqual(ix?.data);
+    expect(compiled?.accountKeyIndexes.map((i) => message?.staticAccountKeys[i]?.toBase58())).toEqual(ix?.keys.map((k) => k.pubkey.toBase58()));
+  });
+
+  it("offers instructions only for single-transaction actions", () => {
+    const client = createDirectClient({ connection: fakeConnection(new Map()).connection });
+    // @ts-expect-error a swap may need two transactions, so it has no instruction form
+    expect(client.instructions.jupiterSwap).toBeUndefined();
+    expect(Object.keys(client.instructions)).toHaveLength(15);
+  });
+
+  it("refuses to send a build for another payer, signing nothing", async () => {
     const fake = fakeConnection(await chain());
     const client = createDirectClient({ connection: fake.connection });
-    const outcome = await client.execute(
-      // @ts-expect-error phoenix/onboard goes through onboardPhoenix, not execute
-      { action: "phoenix/onboard", vault: V },
-      keypairSigner(manager),
-    );
-    expect(outcome).toEqual({ kind: "failed", signatures: [], code: "NotFound", message: "phoenix/onboard has no local builder; use createHedgeClient" });
+    const built = await client.vaultClose({ vault: V }, { payer: manager.publicKey });
+    expect(await client.send(built, keypairSigner(stranger))).toEqual({ kind: "refused", signatures: [], reason: "The signer is not this build's payer" });
+    expect(fake.sent).toEqual([]);
   });
 });

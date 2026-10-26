@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { z } from "zod";
 import { getStrategyPda } from "../chain/pda";
 import { ApiError } from "../errors";
-import { assemble, fitsInTransaction } from "./assemble";
+import { assemble, assembled, fitsInTransaction } from "./assemble";
 import { amountString, type BuildEnv, pubkey } from "./context";
 import { cancelLimitOrderIx, DLMM_MAX_LIMIT_ORDER_BINS, loadDlmmCtx, pairOf, pairStrategySetupIxs, placeLimitOrderIxs, readLimitOrderLbPair } from "./dlmm-ix";
 import { meteora, readPool } from "./meteora";
@@ -62,7 +62,7 @@ export async function buildDlmmLimitOrderPlace(env: BuildEnv, b: z.infer<typeof 
  * Cancels the given bins, or every bin that still holds anything. Once nothing is left in the order
  * the strategy closes in the same transaction and the order's rent returns to the wallet.
  */
-export async function buildDlmmLimitOrderCancel(env: BuildEnv, b: z.infer<typeof dlmmLimitOrderCancelInput>): Promise<LocalStep> {
+export async function dlmmLimitOrderCancelInstructions(env: BuildEnv, b: z.infer<typeof dlmmLimitOrderCancelInput>) {
   const c = await loadDlmmCtx(env, b.vault);
   const limitOrder = new PublicKey(b.limitOrder);
   const pool = await readPool(env, await readLimitOrderLbPair(env, limitOrder));
@@ -81,5 +81,7 @@ export async function buildDlmmLimitOrderCancel(env: BuildEnv, b: z.infer<typeof
     ...(cancelled.length ? [await cancelLimitOrderIx(c, pool, limitOrder, cancelled)] : []),
     ...(closesStrategy ? [await closeDlmmStrategyIx(env, c.vault, c.operator, limitOrder, pairOf(pool))] : []),
   ];
-  return { ...(await assemble(env, ixs)), cancelledBins: cancelled, closesStrategy };
+  return { instructions: ixs, cancelledBins: cancelled, closesStrategy };
 }
+
+export const buildDlmmLimitOrderCancel = assembled(dlmmLimitOrderCancelInstructions);

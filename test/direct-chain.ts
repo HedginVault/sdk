@@ -12,8 +12,9 @@ import {
 } from "@solana/web3.js";
 import bs58 from "bs58";
 import { getAssociatedTokenAddress, getConfigPda, getDelegatePda, getManagerPda, getShareMintPda, getStrategyPda, getVaultPda } from "../src/chain/pda";
-import { type DirectActionRequest, type DirectClientOptions, createDirectClient } from "../src/direct";
-import type { Progress } from "../src/executor";
+import { type BuildOptions, DIRECT_ACTIONS, type DirectActionRequest, type DirectClientOptions, type DirectHedgeClient, type UnsignedBuild, createDirectClient } from "../src/direct";
+import { ApiError } from "../src/errors";
+import type { Outcome, Progress } from "../src/executor";
 import idl from "../src/idl/hedge_vault.json";
 import type { HedgeVault } from "../src/idl/hedge_vault";
 import { keypairSigner } from "../src/signer";
@@ -243,6 +244,26 @@ export function clock() {
   return { now: () => now, sleep: async (ms: number) => void (now += ms) };
 }
 
+/** The action's method by its path, as a caller would pick it. */
+export function buildMethod(client: DirectHedgeClient, action: DirectActionRequest["action"]) {
+  const name = (Object.keys(DIRECT_ACTIONS) as (keyof typeof DIRECT_ACTIONS)[]).find((k) => DIRECT_ACTIONS[k] === action);
+  if (!name) throw new Error(`no method for ${action}`);
+  return client[name] as (params: object, options: BuildOptions) => Promise<UnsignedBuild>;
+}
+
+/** Build then send; a build's `ApiError` becomes the `failed` outcome nothing was sent for. */
+async function buildAndSend(client: DirectHedgeClient, request: DirectActionRequest, signer: Keypair, options: Parameters<DirectHedgeClient["send"]>[2] & { now: () => number }): Promise<Outcome> {
+  const { action, ...params } = request;
+  let built: UnsignedBuild;
+  try {
+    built = await buildMethod(client, action)(params, { payer: signer.publicKey, now: options.now });
+  } catch (e) {
+    if (!(e instanceof ApiError)) throw e;
+    return { kind: "failed", signatures: [], code: e.code, message: e.message };
+  }
+  return client.send(built, keypairSigner(signer), options);
+}
+
 export async function run(
   request: DirectActionRequest,
   rpc: RpcOptions = {},
@@ -253,8 +274,9 @@ export async function run(
   const fixtures = accounts ?? (await chain());
   const fake = fakeConnection(fixtures, rpc);
   const progress: Progress[] = [];
-  const outcome = await createDirectClient({ connection: fake.connection, ...client }).execute(request, keypairSigner(signer), {
-    ...clock(),
+  const time = clock();
+  const outcome = await buildAndSend(createDirectClient({ connection: fake.connection, ...client }), request, signer, {
+    ...time,
     onProgress: (p) => void progress.push(p),
   });
   const [first] = fake.sent;

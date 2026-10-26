@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { ConfigAccount } from "../chain/decode";
 import { getConfigPda, getManagerPda, getVaultPda } from "../chain/pda";
 import { ApiError } from "../errors";
-import { assemble, type Assembled } from "./assemble";
+import { assembled, type InstructionSet } from "./assemble";
 import { amountString, assertAuthority, bps, type BuildEnv, loadVaultCtx, pubkey, tokenProgramOf } from "./context";
 
 /** Program caps on the manager fees (`MAX_PERFORMANCE_FEE_BPS`, `MAX_MANAGEMENT_FEE_BPS`). */
@@ -27,8 +27,8 @@ export const vaultInitializeInput = z.object({
   minWithdrawalShares: amountString,
 });
 
-/** 1 RPC for the manager, config and mint, then `assemble`. The step carries the new vault's address. */
-export async function buildVaultInitialize(env: BuildEnv, b: z.infer<typeof vaultInitializeInput>): Promise<Assembled & { vault: string }> {
+/** 1 RPC for the manager, config and mint. Carries the new vault's address. */
+export async function vaultInitializeInstructions(env: BuildEnv, b: z.infer<typeof vaultInitializeInput>): Promise<InstructionSet & { vault: string }> {
   const authority = env.payer;
   const depositMint = new PublicKey(b.depositMint);
   const manager = getManagerPda(authority, env.programId);
@@ -57,8 +57,10 @@ export async function buildVaultInitialize(env: BuildEnv, b: z.infer<typeof vaul
       depositMintTokenProgram: tokenProgramOf(depositMint, mintInfo ?? null),
     })
     .instruction();
-  return { ...(await assemble(env, [ix])), vault: vault.toBase58() };
+  return { instructions: [ix], vault: vault.toBase58() };
 }
+
+export const buildVaultInitialize = assembled(vaultInitializeInstructions);
 
 export const vaultUpdateInput = z
   .object({
@@ -78,7 +80,7 @@ export const vaultUpdateInput = z
 const statusArg = { normal: { normal: {} }, paused: { paused: {} }, reduceOnly: { reduceOnly: {} } } as const;
 const optionalBn = (s: string | undefined) => (s === undefined ? null : new BN(s));
 
-export async function buildVaultUpdate(env: BuildEnv, b: z.infer<typeof vaultUpdateInput>): Promise<Assembled> {
+export async function vaultUpdateInstructions(env: BuildEnv, b: z.infer<typeof vaultUpdateInput>): Promise<InstructionSet> {
   const vault = await loadVaultCtx(env, b.vault);
   assertAuthority(vault, env.payer);
   const ix = await env.program.methods
@@ -94,22 +96,26 @@ export async function buildVaultUpdate(env: BuildEnv, b: z.infer<typeof vaultUpd
     })
     .accounts({ authority: env.payer, vault: vault.key })
     .instruction();
-  return assemble(env, [ix]);
+  return { instructions: [ix] };
 }
+
+export const buildVaultUpdate = assembled(vaultUpdateInstructions);
 
 export const vaultInput = z.object({ vault: pubkey });
 
-export async function buildVaultClaimFee(env: BuildEnv, b: z.infer<typeof vaultInput>): Promise<Assembled> {
+export async function vaultClaimFeeInstructions(env: BuildEnv, b: z.infer<typeof vaultInput>): Promise<InstructionSet> {
   const vault = await loadVaultCtx(env, b.vault);
   assertAuthority(vault, env.payer);
   const ix = await env.program.methods
     .vaultClaimManagerFee()
     .accounts({ authority: env.payer, vault: vault.key, shareMint: vault.shareMint })
     .instruction();
-  return assemble(env, [ix]);
+  return { instructions: [ix] };
 }
 
-export async function buildVaultClose(env: BuildEnv, b: z.infer<typeof vaultInput>): Promise<Assembled> {
+export const buildVaultClaimFee = assembled(vaultClaimFeeInstructions);
+
+export async function vaultCloseInstructions(env: BuildEnv, b: z.infer<typeof vaultInput>): Promise<InstructionSet> {
   const vault = await loadVaultCtx(env, b.vault);
   assertAuthority(vault, env.payer);
   const ix = await env.program.methods
@@ -122,5 +128,7 @@ export async function buildVaultClose(env: BuildEnv, b: z.infer<typeof vaultInpu
       depositMintTokenProgram: vault.tokenProgram,
     })
     .instruction();
-  return assemble(env, [ix]);
+  return { instructions: [ix] };
 }
+
+export const buildVaultClose = assembled(vaultCloseInstructions);

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getAssociatedTokenAddress, getConfigPda, getStrategyPda } from "../chain/pda";
 import { ApiError } from "../errors";
 import type { HedgeVault } from "../idl/hedge_vault";
-import { assemble, type Assembled } from "./assemble";
+import { assembled, type InstructionSet } from "./assemble";
 import {
   assertOperator,
   type BuildEnv,
@@ -137,7 +137,7 @@ async function closeAccounts(env: BuildEnv, vault: VaultCtx, strategyType: Strat
   throw new ApiError(400, "Validation", "Unsupported strategy type");
 }
 
-export async function buildStrategyClose(env: BuildEnv, b: z.infer<typeof strategyCloseInput>): Promise<Assembled> {
+export async function strategyCloseInstructions(env: BuildEnv, b: z.infer<typeof strategyCloseInput>): Promise<InstructionSet> {
   const vault = await loadVaultCtx(env, b.vault);
   const operator = await assertOperator(env, vault, env.payer);
   const strategy = new PublicKey(b.strategy);
@@ -152,5 +152,7 @@ export async function buildStrategyClose(env: BuildEnv, b: z.infer<typeof strate
     .accounts({ authority: env.payer, config: getConfigPda(env.programId), vault: vault.key, strategy, delegate: delegateFor(operator, permission) })
     .remainingAccounts(remaining)
     .instruction();
-  return assemble(env, [ix]);
+  return { instructions: [ix] };
 }
+
+export const buildStrategyClose = assembled(strategyCloseInstructions);

@@ -35,6 +35,22 @@ export interface AssembleOptions {
   deferSimulation?: boolean;
 }
 
+/** One transaction's instructions, before `assemble` adds the compute budget, fee, blockhash and simulation. */
+export interface InstructionSet {
+  instructions: TransactionInstruction[];
+  lookupTables?: AddressLookupTableAccount[];
+  /** Keys the transaction creates, such as a new DLMM position: they must sign it too. */
+  signers?: Keypair[];
+}
+
+/** Turns an instruction builder into a step builder; extra fields such as a new address ride along. */
+export function assembled<B, R extends InstructionSet>(instructionsOf: (env: BuildEnv, b: B) => Promise<R>) {
+  return async (env: BuildEnv, b: B): Promise<Assembled & Omit<R, keyof InstructionSet>> => {
+    const { instructions, lookupTables, signers, ...meta } = await instructionsOf(env, b);
+    return { ...(await assemble(env, instructions, lookupTables, { signers })), ...meta };
+  };
+}
+
 /** A simulation that ran out of compute: the caller may retry with fewer bins. */
 export const isComputeLimitError = (e: unknown) => e instanceof ApiError && e.code === "SimulationFailed" && e.message === COMPUTE_LIMIT_MESSAGE;
 

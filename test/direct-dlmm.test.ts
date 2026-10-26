@@ -486,8 +486,8 @@ describe("direct DLMM delegates", () => {
     const accounts = await chainWithTables({ delegatePermissions: 1 });
     const fake = fakeConnection(accounts);
     const client = createDirectClient({ connection: fake.connection, fetch: fakeJupiter().fetch });
-    const outcome = await client.execute({ action: "dlmm/add", vault: V, position: pos, amountX: "1", amountY: "0", shape: "spot", maxActiveBinSlippage: 1 }, keypairSigner(delegateWallet));
-    expect(outcome).toEqual({ kind: "failed", signatures: [], code: "DelegatePermissionDenied", message: "This delegate cannot run Meteora DLMM actions" });
+    const built = client.dlmmAdd({ vault: V, position: pos, amountX: "1", amountY: "0", shape: "spot", maxActiveBinSlippage: 1 }, { payer: delegateWallet.publicKey });
+    await expect(built).rejects.toMatchObject({ code: "DelegatePermissionDenied", message: "This delegate cannot run Meteora DLMM actions" });
     expect(fake.reads).toEqual([V, USDC.toBase58(), DELEGATE.toBase58()]);
   });
 

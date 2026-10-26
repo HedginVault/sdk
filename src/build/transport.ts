@@ -4,9 +4,18 @@ import { z } from "zod";
 import { ApiError } from "../errors";
 import type { ExecutionTransport } from "../executor";
 import type { BuiltStep, SendResult, TransactionStatus } from "../schemas";
-import { type BuildContext, type BuildEnv, buildEnv } from "./context";
+import type { InstructionSet } from "./assemble";
+import { type ActionBody, type BuildContext, type BuildEnv, buildEnv } from "./context";
 import { describeTxFailure } from "./program-errors";
-import { isLocalAction, type LocalAction, type LocalBuilders, localBuilders } from "./registry";
+import {
+  type InstructionAction,
+  isLocalAction,
+  type LocalAction,
+  type LocalBuilders,
+  type LocalInstructionBuilders,
+  localBuilders,
+  localInstructions,
+} from "./registry";
 
 /** Local builds skip the API's HMAC ticket; the schema still requires a non-empty one. */
 const LOCAL_TICKET = "local";
@@ -19,15 +28,26 @@ const ReceiptSchema = z.object({ signature: z.string().min(1), blockhash: z.stri
 
 const table: LocalBuilders = localBuilders;
 
-async function buildLocal<A extends LocalAction>(env: BuildEnv, action: A, body: Record<string, unknown>): Promise<BuiltStep[]> {
-  const builder = table[action];
-  const parsed = builder.input.safeParse(body);
+function parseBody<A extends LocalAction>(action: A, body: Record<string, unknown>): ActionBody<A> {
+  if ("payer" in body) throw new ApiError(400, "Validation", "payer is set by the signer");
+  const parsed = table[action].input.safeParse(body);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     throw new ApiError(400, "Validation", `${issue?.path.join(".") || "body"}: ${issue?.message ?? "invalid"}`);
   }
-  const built = await builder.build(env, parsed.data);
+  return parsed.data;
+}
+
+async function buildLocal<A extends LocalAction>(env: BuildEnv, action: A, body: Record<string, unknown>): Promise<BuiltStep[]> {
+  const built = await table[action].build(env, parseBody(action, body));
   return (Array.isArray(built) ? built : [built]).map((step) => ({ ...step, ticket: LOCAL_TICKET }));
+}
+
+const instructionTable: LocalInstructionBuilders = localInstructions;
+
+/** One single-transaction action's instructions, validated like a build, with no fee, blockhash or simulation. */
+export function instructionsLocal<A extends InstructionAction>(ctx: BuildContext, action: A, body: Record<string, unknown>): Promise<InstructionSet> {
+  return instructionTable[action](buildEnv(ctx), parseBody(action, body));
 }
 
 /**
@@ -45,7 +65,6 @@ export function localTransport(ctx: BuildContext): ExecutionTransport {
   return {
     build: async (action, body) => {
       if (!isLocalAction(action)) throw new ApiError(404, "NotFound", `${action} has no local builder; use createHedgeClient`);
-      if ("payer" in body) throw new ApiError(400, "Validation", "payer is set by the signer");
       return buildLocal(env, action, body);
     },
 

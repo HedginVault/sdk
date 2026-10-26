@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import type { ContinuationRequest } from "../actions";
-import type { Assembled } from "./assemble";
+import type { Assembled, InstructionSet } from "./assemble";
 import type { ActionBody, BuildEnv } from "./context";
 import {
   buildDlmmAdd,
@@ -10,6 +10,7 @@ import {
   buildDlmmExtend,
   buildDlmmFlip,
   buildDlmmInitialize,
+  dlmmInitializeInstructions,
   buildDlmmOpen,
   buildDlmmRemove,
   dlmmAddInput,
@@ -22,9 +23,15 @@ import {
   dlmmRemoveInput,
   dlmmWideStepInput,
 } from "./dlmm";
-import { buildDlmmLimitOrderCancel, buildDlmmLimitOrderPlace, dlmmLimitOrderCancelInput, dlmmLimitOrderPlaceInput } from "./dlmm-limit-order";
+import {
+  buildDlmmLimitOrderCancel,
+  buildDlmmLimitOrderPlace,
+  dlmmLimitOrderCancelInput,
+  dlmmLimitOrderCancelInstructions,
+  dlmmLimitOrderPlaceInput,
+} from "./dlmm-limit-order";
 import { buildDlmmZapOut, buildDlmmZapOutSwap, dlmmZapOutInput, dlmmZapOutSwapInput } from "./dlmm-zap";
-import { buildJupiterInitialize, jupiterInitializeInput } from "./jupiter-initialize";
+import { buildJupiterInitialize, jupiterInitializeInput, jupiterInitializeInstructions } from "./jupiter-initialize";
 import {
   buildPhoenixCancel,
   buildPhoenixDeposit,
@@ -34,14 +41,33 @@ import {
   buildPhoenixTpSl,
   buildPhoenixWithdraw,
   phoenixAmountInput,
+  phoenixCancelInstructions,
+  phoenixDepositInstructions,
+  phoenixInitializeInstructions,
+  phoenixOrderInstructions,
+  phoenixSweepInstructions,
+  phoenixTpSlInstructions,
+  phoenixWithdrawInstructions,
   phoenixCancelInput,
   phoenixOrderInput,
   phoenixTpSlInput,
   phoenixVaultInput,
 } from "./phoenix";
 import { buildJupiterSwap, buildJupiterSweep, jupiterSwapInput, jupiterSweepInput } from "./jupiter-swap";
-import { buildStrategyClose, strategyCloseInput } from "./strategy";
-import { buildVaultClaimFee, buildVaultClose, buildVaultInitialize, buildVaultUpdate, vaultInitializeInput, vaultInput, vaultUpdateInput } from "./vault";
+import { buildStrategyClose, strategyCloseInput, strategyCloseInstructions } from "./strategy";
+import {
+  buildVaultClaimFee,
+  buildVaultClose,
+  buildVaultInitialize,
+  buildVaultUpdate,
+  vaultClaimFeeInstructions,
+  vaultCloseInstructions,
+  vaultInitializeInput,
+  vaultInitializeInstructions,
+  vaultInput,
+  vaultUpdateInput,
+  vaultUpdateInstructions,
+} from "./vault";
 
 /** Actions `createDirectClient().execute` builds locally; every other action still needs `createHedgeClient`. */
 export type LocalAction =
@@ -130,3 +156,43 @@ export const localBuilders = {
 } satisfies LocalBuilders;
 
 export const isLocalAction = (action: string): action is LocalAction => Object.hasOwn(localBuilders, action);
+
+/** Actions that always build as one transaction, so their raw instructions are a complete answer. */
+export type InstructionAction =
+  | "vault/initialize"
+  | "vault/update"
+  | "vault/claim-fee"
+  | "vault/close"
+  | "strategy/close"
+  | "jupiter/initialize"
+  | "phoenix/initialize"
+  | "phoenix/deposit"
+  | "phoenix/withdraw"
+  | "phoenix/sweep"
+  | "phoenix/order"
+  | "phoenix/tpsl"
+  | "phoenix/cancel"
+  | "dlmm/initialize"
+  | "dlmm/limit-order/cancel";
+
+export type LocalInstructionBuilders = { [A in InstructionAction]: (env: BuildEnv, body: ActionBody<A>) => Promise<InstructionSet> };
+
+export const localInstructions = {
+  "vault/initialize": vaultInitializeInstructions,
+  "vault/update": vaultUpdateInstructions,
+  "vault/claim-fee": vaultClaimFeeInstructions,
+  "vault/close": vaultCloseInstructions,
+  "strategy/close": strategyCloseInstructions,
+  "jupiter/initialize": jupiterInitializeInstructions,
+  "phoenix/initialize": phoenixInitializeInstructions,
+  "phoenix/deposit": phoenixDepositInstructions,
+  "phoenix/withdraw": phoenixWithdrawInstructions,
+  "phoenix/sweep": phoenixSweepInstructions,
+  "phoenix/order": phoenixOrderInstructions,
+  "phoenix/tpsl": phoenixTpSlInstructions,
+  "phoenix/cancel": phoenixCancelInstructions,
+  "dlmm/initialize": dlmmInitializeInstructions,
+  "dlmm/limit-order/cancel": dlmmLimitOrderCancelInstructions,
+} satisfies LocalInstructionBuilders;
+
+export const isInstructionAction = (action: string): action is InstructionAction => Object.hasOwn(localInstructions, action);

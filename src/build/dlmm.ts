@@ -1,7 +1,7 @@
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { z } from "zod";
 import { ApiError } from "../errors";
-import { type Assembled, assemble, fitsInTransaction, isComputeLimitError, refreshBatch } from "./assemble";
+import { type Assembled, assemble, assembled, fitsInTransaction, isComputeLimitError, refreshBatch } from "./assemble";
 import { amountString, type BuildEnv, pubkey } from "./context";
 import {
   addLiquidityIxs,
@@ -97,7 +97,7 @@ export function rangeFromWidth(activeId: number, width: number) {
   return { lowerBinId, upperBinId: lowerBinId + width };
 }
 
-export async function buildDlmmInitialize(env: BuildEnv, b: z.infer<typeof dlmmInitializeInput>): Promise<LocalStep> {
+export async function dlmmInitializeInstructions(env: BuildEnv, b: z.infer<typeof dlmmInitializeInput>) {
   const c = await loadDlmmCtx(env, b.vault);
   const pool = await readPool(env, new PublicKey(b.lbPair));
   let { lowerBinId: lower, upperBinId: upper } = b;
@@ -112,8 +112,10 @@ export async function buildDlmmInitialize(env: BuildEnv, b: z.infer<typeof dlmmI
   const setup = await pairStrategySetupIxs(c, pair);
   const { ix, position } = await initializePositionIx(c, pair, lower, upper);
   // The position account stores `upper - 1` as its last bin; report what the chain will hold.
-  return { ...(await assemble(env, [...setup, ix], [], { signers: [position] })), position: position.publicKey.toBase58(), lowerBinId: lower, upperBinId: upper - 1 };
+  return { instructions: [...setup, ix], signers: [position], position: position.publicKey.toBase58(), lowerBinId: lower, upperBinId: upper - 1 };
 }
+
+export const buildDlmmInitialize = assembled(dlmmInitializeInstructions);
 
 /**
  * Opens a position and prepares its resize and funding transactions as one batch. `upperBinId` is

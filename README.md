@@ -110,19 +110,33 @@ Differences from the API:
 
 Options: `programId` points at another deployment of the program, `fetch` replaces the
 global `fetch` used for Jupiter and Phoenix, `jupiterHost` replaces the Jupiter host for quotes and swaps, `phoenixApiUrl` replaces Phoenix's perp-api host (`https://perp-api.phoenix.trade`), `protocolLookupTable` names the protocol address lookup table that DLMM zaps use to fit their swap, and `maxComputeUnitPriceMicroLamports` caps the priority fee
-`execute` will sign. An address that is not a vault of the program fails with `ApiError` code
+`send` will sign. An address that is not a vault of the program fails with `ApiError` code
 `NotFound`, the same code the API uses.
 
 ### Direct execution
 
-`execute` on the direct client builds the transaction itself from chain state, then
-inspects, signs, sends and confirms it through your `Connection`. It uses the same signing
-policy and returns the same `Outcome` as `createHedgeClient().execute`. The signer's key is
-the fee payer and the acting manager.
+The direct client has one method per action, named after its path (`vault/claim-fee` is
+`vaultClaimFee`, `dlmm/limit-order/place` is `dlmmLimitOrderPlace`). Each action has three
+layers, so you can stop at the one you need:
+
+| Layer | Call | Returns |
+| --- | --- | --- |
+| Instructions | `hedge.instructions.vaultClaimFee(params, { payer })` | `{ instructions, lookupTables?, signers? }`: no compute budget, fee, blockhash or simulation. Only the 15 actions that always fit one transaction. |
+| Unsigned transactions | `hedge.vaultClaimFee(params, { payer })` | `{ action, payer, steps }`: each step's `transaction` is a simulated `VersionedTransaction` with a recent blockhash, unsigned by `payer`. |
+| Sign and send | `hedge.send(build, signer)` | An `Outcome`. It inspects every step under `createHedgeClient().execute`'s signing policy, signs, sends and confirms through your `Connection`, and builds any `next` step itself. |
 
 ```ts
-const outcome = await hedge.execute({ action: "vault/claim-fee", vault: "<vault address>" }, keypairSigner(keypair));
+const payer = keypair.publicKey;
+const build = await hedge.vaultClaimFee({ vault: "<vault address>" }, { payer });
+const outcome = await hedge.send(build, keypairSigner(keypair));
 ```
+
+`payer` is the fee payer and the acting manager. A build throws `ApiError` for a bad request,
+a refused signer or a failed simulation; nothing is sent. `send` refuses a signer that is not
+the build's payer. Send within about a minute of building, before the blockhash expires.
+`signers` from `instructions` are keys the transaction creates, such as a new DLMM position;
+they must sign too. The other actions split into several transactions by simulated compute,
+so they have only the built form.
 
 These actions build locally:
 
@@ -152,7 +166,7 @@ and the route's instructions, and cap `slippageBps` at the protocol's `maxSlippa
 API does. A Jupiter error or malformed response fails the build with an `ApiError`, before
 anything is signed. Their `next` continuations (`jupiter/swap` after a strategy-only
 transaction, `jupiter/sweep` when a strategy close does not fit behind the route) are local
-actions too, so `execute` follows them without the API. `getQuote(request)` returns the same
+actions too, so `send` follows them without the API. `getQuote(request)` returns the same
 `Quote` as the HTTP client.
 
 The Phoenix actions read Phoenix's accounts from chain. `phoenix/order`, `phoenix/tpsl` and
@@ -165,7 +179,7 @@ it), and the SDK confirms it through your `Connection`. A submit whose reply is 
 polled on chain, never resubmitted.
 
 The DLMM actions read the pool, position and bin arrays from chain with Meteora's SDK
-(`@meteora-ag/dlmm`, loaded on first use). Wide positions build as one batch that `execute`
+(`@meteora-ag/dlmm`, loaded on first use). Wide positions build as one batch that `send`
 inspects whole before sending: `dlmm/open` initializes, extends and funds chunk by chunk, and
 withdrawals, claims and closes go range by range. Later steps of a batch skip simulation and
 are checked by the send's preflight, as the API does. The continuations `dlmm/extend`,
@@ -181,9 +195,10 @@ before simulation. A send lost to an RPC error is polled by its signature, never
 
 ## Actions
 
-`execute` runs every builder below, with typed bodies (`ActionRequest`). It follows batch
+`execute` on the API client, and the direct client's per-action methods with `send`, run every
+builder below, with typed bodies (`ActionRequest`; the direct client takes the body as `params`). They follow batch
 order (`sendConcurrently` groups, confirmation barriers) and `next` continuations
-(`dlmm/extend`, `dlmm/add-range`, `dlmm/zap-out/swap`, `jupiter/sweep`) on its own.
+(`dlmm/extend`, `dlmm/add-range`, `dlmm/zap-out/swap`, `jupiter/sweep`) on their own.
 
 | Action | Body besides `action` | Notes |
 | --- | --- | --- |

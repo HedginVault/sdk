@@ -3,7 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import { z } from "zod";
 import { getAssociatedTokenAddress, getConfigPda, getStrategyPda } from "../chain/pda";
 import { ApiError } from "../errors";
-import { assemble, type Assembled } from "./assemble";
+import { assembled, type InstructionSet } from "./assemble";
 import { amountString, assertOperator, type BuildEnv, DELEGATE_PHOENIX, delegateFor, loadVaultCtx, pubkey } from "./context";
 import {
   getPhoenixConditionalOrdersAddress,
@@ -106,18 +106,20 @@ const marketAccounts = (c: Common, ex: PhoenixExchange, orderbook: PublicKey) =>
 const conditionalAccounts = (c: Common) => ({ ...c, conditionalOrders: getPhoenixConditionalOrdersAddress(c.traderAccount) });
 
 /** Registers the vault's trader if it does not exist yet and records the strategy. */
-export async function buildPhoenixInitialize(env: BuildEnv, b: z.infer<typeof phoenixVaultInput>): Promise<Assembled> {
+export async function phoenixInitializeInstructions(env: BuildEnv, b: z.infer<typeof phoenixVaultInput>): Promise<InstructionSet> {
   const c = await phoenixVault(env, b.vault);
   const canonicalMint = await readCanonicalMint(env);
   const ix = await env.program.methods
     .phoenixInitializeStrategy()
     .accountsPartial({ ...c, canonicalMint, vaultCanonicalTokenAccount: vaultAta(c.vault, canonicalMint) })
     .instruction();
-  return assemble(env, [ix]);
+  return { instructions: [ix] };
 }
 
+export const buildPhoenixInitialize = assembled(phoenixInitializeInstructions);
+
 /** Wraps idle USDC through Ember and deposits it as trader collateral. */
-export async function buildPhoenixDeposit(env: BuildEnv, b: z.infer<typeof phoenixAmountInput>): Promise<Assembled> {
+export async function phoenixDepositInstructions(env: BuildEnv, b: z.infer<typeof phoenixAmountInput>): Promise<InstructionSet> {
   const c = await phoenixVault(env, b.vault);
   const ex = await loadPhoenixExchange(env);
   const ix = await env.program.methods
@@ -125,11 +127,13 @@ export async function buildPhoenixDeposit(env: BuildEnv, b: z.infer<typeof phoen
     .accountsPartial(collateralAccounts(c, ex))
     .remainingAccounts(ex.tail)
     .instruction();
-  return assemble(env, [ix]);
+  return { instructions: [ix] };
 }
 
+export const buildPhoenixDeposit = assembled(phoenixDepositInstructions);
+
 /** Withdraws collateral; Phoenix either pays it out now (unwrapped to USDC) or queues all of it. */
-export async function buildPhoenixWithdraw(env: BuildEnv, b: z.infer<typeof phoenixAmountInput>): Promise<Assembled> {
+export async function phoenixWithdrawInstructions(env: BuildEnv, b: z.infer<typeof phoenixAmountInput>): Promise<InstructionSet> {
   const c = await phoenixVault(env, b.vault);
   const ex = await loadPhoenixExchange(env);
   const ix = await env.program.methods
@@ -137,11 +141,13 @@ export async function buildPhoenixWithdraw(env: BuildEnv, b: z.infer<typeof phoe
     .accountsPartial({ ...collateralAccounts(c, ex), perpAssetMap: ex.perpAssetMap, withdrawQueue: ex.withdrawQueue })
     .remainingAccounts(ex.tail)
     .instruction();
-  return assemble(env, [ix]);
+  return { instructions: [ix] };
 }
 
+export const buildPhoenixWithdraw = assembled(phoenixWithdrawInstructions);
+
 /** Unwraps canonical tokens a queued withdrawal delivered later into USDC. No trader, no tail. */
-export async function buildPhoenixSweep(env: BuildEnv, b: z.infer<typeof phoenixVaultInput>): Promise<Assembled> {
+export async function phoenixSweepInstructions(env: BuildEnv, b: z.infer<typeof phoenixVaultInput>): Promise<InstructionSet> {
   const { traderAccount: _trader, ...c } = await phoenixVault(env, b.vault);
   const canonicalMint = await readCanonicalMint(env);
   const ix = await env.program.methods
@@ -154,8 +160,10 @@ export async function buildPhoenixSweep(env: BuildEnv, b: z.infer<typeof phoenix
       vaultCanonicalTokenAccount: vaultAta(c.vault, canonicalMint),
     })
     .instruction();
-  return assemble(env, [ix]);
+  return { instructions: [ix] };
 }
+
+export const buildPhoenixSweep = assembled(phoenixSweepInstructions);
 
 const sideArg = (side: "long" | "short") => (side === "long" ? { bid: {} as Empty } : { ask: {} as Empty });
 
@@ -294,7 +302,7 @@ const tpSlIxs = (env: BuildEnv, c: Common, ex: PhoenixExchange, orderbook: Publi
   ]);
 
 /** A market or limit order, optionally arming a TP/SL on the resulting position or disarming the market's. */
-export async function buildPhoenixOrder(env: BuildEnv, b: OrderBody): Promise<Assembled> {
+export async function phoenixOrderInstructions(env: BuildEnv, b: OrderBody): Promise<InstructionSet> {
   const c = await phoenixVault(env, b.vault);
   const [ex, market] = await Promise.all([loadPhoenixExchange(env), resolvePhoenixMarket(env, b.symbol)]);
   const [markTicks, state, rise] = await Promise.all([
@@ -312,14 +320,16 @@ export async function buildPhoenixOrder(env: BuildEnv, b: OrderBody): Promise<As
       throw new ApiError(400, "Validation", "tpSl: TP/SL can't be attached to an order that reduces or flips a position; set it from the TP/SL panel");
     // The market order fills in full first, so the bracket arms on a position on `side`.
     const plan = planTpSl(rise, { ...state, positionSide: b.side }, market, b.tpSl, markTicks);
-    return assemble(env, [orderIx, ...(await tpSlIxs(env, c, ex, orderbook, plan))]);
+    return { instructions: [orderIx, ...(await tpSlIxs(env, c, ex, orderbook, plan))] };
   }
   const cancels = b.disarmTpSl && state ? disarmMarket(state.orders, market.assetId) : [];
-  return assemble(env, [orderIx, ...(await Promise.all(cancels.map((cancel) => cancelTpSlIx(env, c, orderbook, cancel))))]);
+  return { instructions: [orderIx, ...(await Promise.all(cancels.map((cancel) => cancelTpSlIx(env, c, orderbook, cancel))))] };
 }
 
+export const buildPhoenixOrder = assembled(phoenixOrderInstructions);
+
 /** Replaces the market's TP/SL with exactly the requested legs. */
-export async function buildPhoenixTpSl(env: BuildEnv, b: z.infer<typeof phoenixTpSlInput>): Promise<Assembled> {
+export async function phoenixTpSlInstructions(env: BuildEnv, b: z.infer<typeof phoenixTpSlInput>): Promise<InstructionSet> {
   const c = await phoenixVault(env, b.vault);
   const [ex, market] = await Promise.all([loadPhoenixExchange(env), resolvePhoenixMarket(env, b.symbol)]);
   const placing = b.takeProfit !== null || b.stopLoss !== null;
@@ -329,11 +339,13 @@ export async function buildPhoenixTpSl(env: BuildEnv, b: z.infer<typeof phoenixT
     loadRise(),
   ]);
   const plan = planTpSl(rise, state, market, b, markTicks);
-  return assemble(env, await tpSlIxs(env, c, ex, new PublicKey(market.marketPubkey), plan));
+  return { instructions: await tpSlIxs(env, c, ex, new PublicKey(market.marketPubkey), plan) };
 }
 
+export const buildPhoenixTpSl = assembled(phoenixTpSlInstructions);
+
 /** Cancels every resting order on the market, or the listed ones; Phoenix finds each by price and sequence number. */
-export async function buildPhoenixCancel(env: BuildEnv, b: z.infer<typeof phoenixCancelInput>): Promise<Assembled> {
+export async function phoenixCancelInstructions(env: BuildEnv, b: z.infer<typeof phoenixCancelInput>): Promise<InstructionSet> {
   const c = await phoenixVault(env, b.vault);
   const [ex, market] = await Promise.all([loadPhoenixExchange(env), resolvePhoenixMarket(env, b.symbol)]);
   const mode =
@@ -350,5 +362,7 @@ export async function buildPhoenixCancel(env: BuildEnv, b: z.infer<typeof phoeni
     .accountsPartial(marketAccounts(c, ex, new PublicKey(market.marketPubkey)))
     .remainingAccounts(ex.tail)
     .instruction();
-  return assemble(env, [ix]);
+  return { instructions: [ix] };
 }
+
+export const buildPhoenixCancel = assembled(phoenixCancelInstructions);

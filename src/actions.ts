@@ -71,7 +71,8 @@ export type ActionRequest =
       maxActiveBinSlippage: number;
     }
   | { action: "dlmm/claim-fee"; vault: string; position: string; cursorBinId?: number }
-  | { action: "dlmm/zap-out"; vault: string; position: string; slippageBps: number; cursorBinId?: number }
+  /** `outputMint` picks which pool token to end in. It defaults to the deposit mint. */
+  | { action: "dlmm/zap-out"; vault: string; position: string; slippageBps: number; cursorBinId?: number; outputMint?: string }
   | { action: "strategy/close"; vault: string; strategy: string }
   /** Creates a DLMM position with no liquidity, plus any missing pair-token Jupiter strategies. */
   | {

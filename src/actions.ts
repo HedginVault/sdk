@@ -191,6 +191,33 @@ export type ActionRequest =
 
 export type BuildAction = ActionRequest["action"];
 
+/** One step of a wide DLMM position flow: extend toward `targetUpperBinId`, then fund it from `activeBinId`. */
+type DlmmWideStep = {
+  vault: string;
+  position: string;
+  /** Inclusive. */
+  targetUpperBinId: number;
+  amountX: BaseUnitString;
+  amountY: BaseUnitString;
+  shape: DlmmShape;
+  maxActiveBinSlippage: number;
+  activeBinId: number;
+} & InclusiveBinSelection;
+
+/** A token the zap returned, with the vault's balance of it before the zap. */
+export interface ZapSource {
+  mint: string;
+  balanceBefore: BaseUnitString;
+  closeWhenEmpty?: boolean;
+}
+
+/** Builders that only ever run as a step's `next`: `execute` follows them; callers never start one. */
+export type ContinuationRequest =
+  | ({ action: "dlmm/extend" } & DlmmWideStep)
+  | ({ action: "dlmm/add-range"; cursorBinId: number } & DlmmWideStep)
+  /** Swaps what the zap returned of each source into the deposit mint, one source per build. */
+  | { action: "dlmm/zap-out/swap"; vault: string; sources: ZapSource[]; slippageBps: number };
+
 export interface BuildRequest {
   /** A builder name, or a `next.path` returned by a previous build. */
   action: string;

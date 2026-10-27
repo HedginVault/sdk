@@ -11,6 +11,34 @@ export {
   toBuildRequest,
 } from "./actions";
 export { type HedgeClient, type HedgeClientOptions, type QuoteRequest, createHedgeClient, normalizeBaseUrl } from "./client";
+export {
+  getConfigPda,
+  getDelegatePda,
+  getDepositEscrowPda,
+  getDepositRequestPda,
+  getManagerPda,
+  getShareEscrowPda,
+  getShareMintPda,
+  getStrategyPda,
+  getSwapAuthorityPda,
+  getUnwrapPda,
+  getVaultPda,
+  getWithdrawalRequestPda,
+} from "./chain/pda";
+export { type LocalAction } from "./build/registry";
+export {
+  type ActionParams,
+  type BuildOptions,
+  type DirectActionRequest,
+  type DirectClientOptions,
+  type DirectHedgeClient,
+  type UnsignedBuild,
+  type UnsignedStep,
+  DIRECT_ACTIONS,
+  createDirectClient,
+} from "./direct";
+export { type InstructionAction } from "./build/registry";
+export { type InstructionSet } from "./build/assemble";
 export { ApiError, UnsafeTransactionError } from "./errors";
 export { type ExecuteOptions, type Created, type ExecutionTransport, type Outcome, type Progress, executeBuild, executePhoenixOnboard, groupSteps } from "./executor";
 export * from "./schemas";

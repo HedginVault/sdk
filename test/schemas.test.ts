@@ -40,6 +40,11 @@ describe("read schemas", () => {
     expect(RequestQueueSchema.safeParse(bad).success).toBe(false);
   });
 
+  it("parses a frozen request, which the app returns once a newer epoch starts before its NAV", () => {
+    const frozen = { ...requestQueue, deposits: [{ ...requestQueue.deposits[0], state: "frozen", cancellable: false }] };
+    expect(RequestQueueSchema.parse(viaJson(frozen)).deposits[0]?.state).toBe("frozen");
+  });
+
   it("parses strategy history with a realized loss and rejects a fractional one", () => {
     expect(StrategyHistoryItemSchema.array().parse(viaJson(strategyHistory))).toEqual(strategyHistory);
     const [item] = strategyHistory;

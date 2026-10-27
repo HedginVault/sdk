@@ -77,11 +77,128 @@ array: absent means these holdings are unknown, while `[]` means none were repor
 deployment has no history database. In `getPhoenix`, `openOrders`, `withdrawable`, and
 `account` are `null` when Phoenix's own API is down.
 
+## Direct mode (no API key)
+
+`createDirectClient` reads vault state straight from Solana through a `Connection` you
+bring. It needs no API key and never calls the Manager API. Its methods return the same
+types as `createHedgeClient`, so code that only reads can swap one client for the other.
+
+```ts
+import { Connection } from "@solana/web3.js";
+import { createDirectClient } from "@hedginxyz/sdk";
+
+const hedge = createDirectClient({ connection: new Connection("https://<your-rpc>", "confirmed") });
+const vault = await hedge.getVault("<vault address>");
+```
+
+Supported so far:
+
+| Method | Reads |
+| --- | --- |
+| `listVaults()` | Every vault of the program, sorted by id. |
+| `getVault(vault)` | The vault, protocol config, deposit and share mints, and idle token account. |
+| `getRequests(vault)` | Queued deposit and withdrawal requests for the vault. |
+| `getPhoenix(vault)` | Phoenix strategy status, markets, open orders, margin and armed TP/SL, from chain and Phoenix's perp-api. |
+| `getPool(vault, lbPair)` | A Meteora DLMM pool's tokens, bin step, active bin and price, from chain. `vault` is unused. |
+
+Differences from the API:
+
+- `listVaults()` returns every vault, not only the vaults your key manages.
+- `name` is the on-chain name, or `Vault #<id>` when it is empty. Display names set by an admin live in the app database.
+- `getVault()` omits `unmanagedHoldings`. The API omits it too.
+- `depositSymbol` comes from Jupiter's token search (`lite-api.jup.ag`, or `api.jup.ag` when you pass `jupiterApiKey`). When Jupiter is down it falls back to a short mint label such as `EPjF…Dt1v`, as the app does.
+
+Options: `programId` points at another deployment of the program, `fetch` replaces the
+global `fetch` used for Jupiter and Phoenix, `jupiterHost` replaces the Jupiter host for quotes and swaps, `phoenixApiUrl` replaces Phoenix's perp-api host (`https://perp-api.phoenix.trade`), `protocolLookupTable` names the protocol address lookup table that DLMM zaps use to fit their swap, and `maxComputeUnitPriceMicroLamports` caps the priority fee
+`send` will sign. An address that is not a vault of the program fails with `ApiError` code
+`NotFound`, the same code the API uses.
+
+### Direct execution
+
+The direct client has one method per action, named after its path (`vault/claim-fee` is
+`vaultClaimFee`, `dlmm/limit-order/place` is `dlmmLimitOrderPlace`). Each action has three
+layers, so you can stop at the one you need:
+
+| Layer | Call | Returns |
+| --- | --- | --- |
+| Instructions | `hedge.instructions.vaultClaimFee(params, { payer })` | `{ instructions, lookupTables?, signers? }`: no compute budget, fee, blockhash or simulation. Only the 15 actions that always fit one transaction. |
+| Unsigned transactions | `hedge.vaultClaimFee(params, { payer })` | `{ action, payer, steps }`: each step's `transaction` is a simulated `VersionedTransaction` with a recent blockhash, unsigned by `payer`. |
+| Sign and send | `hedge.send(build, signer)` | An `Outcome`. It inspects every step under `createHedgeClient().execute`'s signing policy, signs, sends and confirms through your `Connection`, and builds any `next` step itself. |
+
+```ts
+const payer = keypair.publicKey;
+const build = await hedge.vaultClaimFee({ vault: "<vault address>" }, { payer });
+const outcome = await hedge.send(build, keypairSigner(keypair));
+```
+
+`payer` is the fee payer and the acting manager. A build throws `ApiError` for a bad request,
+a refused signer or a failed simulation; nothing is sent. `send` refuses a signer that is not
+the build's payer. Send within about a minute of building, before the blockhash expires.
+`signers` from `instructions` are keys the transaction creates, such as a new DLMM position;
+they must sign too. The other actions split into several transactions by simulated compute,
+so they have only the built form.
+
+These actions build locally:
+
+| Action | Who may sign |
+| --- | --- |
+| `vault/initialize` | A whitelisted manager. |
+| `vault/update` | The vault authority. |
+| `vault/claim-fee` | The vault authority. |
+| `vault/close` | The vault authority. |
+| `strategy/close` | The vault authority, or a delegate with the strategy's protocol permission. |
+| `jupiter/initialize` | The vault authority, or a delegate with Jupiter permission. |
+| `jupiter/swap` | The vault authority, or a delegate with Jupiter permission. |
+| `jupiter/sweep` | The vault authority, or a delegate with Jupiter permission. |
+| `phoenix/initialize` | The vault authority, or a delegate with Phoenix permission. |
+| `phoenix/deposit` | The vault authority, or a delegate with Phoenix permission. |
+| `phoenix/withdraw` | The vault authority, or a delegate with Phoenix permission. |
+| `phoenix/sweep` | The vault authority, or a delegate with Phoenix permission. |
+| `phoenix/order` | The vault authority, or a delegate with Phoenix permission. |
+| `phoenix/tpsl` | The vault authority, or a delegate with Phoenix permission. |
+| `phoenix/cancel` | The vault authority, or a delegate with Phoenix permission. |
+| `dlmm/initialize`, `dlmm/open`, `dlmm/add`, `dlmm/remove`, `dlmm/flip`, `dlmm/claim-fee`, `dlmm/zap-out`, `dlmm/close` | The vault authority, or a delegate with Meteora DLMM permission. |
+| `dlmm/limit-order/place`, `dlmm/limit-order/cancel` | The vault authority, or a delegate with Meteora DLMM permission. |
+
+`jupiter/swap` and `jupiter/sweep` call Jupiter's Swap API (`lite-api.jup.ag`, or `api.jup.ag`
+with `x-api-key` when you pass `jupiterApiKey`; `jupiterHost` overrides the host) for the quote
+and the route's instructions, and cap `slippageBps` at the protocol's `maxSlippageBps`, as the
+API does. A Jupiter error or malformed response fails the build with an `ApiError`, before
+anything is signed. Their `next` continuations (`jupiter/swap` after a strategy-only
+transaction, `jupiter/sweep` when a strategy close does not fit behind the route) are local
+actions too, so `send` follows them without the API. `getQuote(request)` returns the same
+`Quote` as the HTTP client.
+
+The Phoenix actions read Phoenix's accounts from chain. `phoenix/order`, `phoenix/tpsl` and
+`phoenix/cancel` also look up the market by symbol in Phoenix's perp-api market list. A
+Phoenix error or malformed response fails the build with an `ApiError` before anything is
+signed. `onboardPhoenix(vault, signer)` registers the vault's trader after
+`phoenix/initialize`: Phoenix builds the transaction, the signer signs it as fee payer under
+the onboarding policy below, the SDK submits it to Phoenix (which co-signs and broadcasts
+it), and the SDK confirms it through your `Connection`. A submit whose reply is lost is
+polled on chain, never resubmitted.
+
+The DLMM actions read the pool, position and bin arrays from chain with Meteora's SDK
+(`@meteora-ag/dlmm`, loaded on first use). Wide positions build as one batch that `send`
+inspects whole before sending: `dlmm/open` initializes, extends and funds chunk by chunk, and
+withdrawals, claims and closes go range by range. Later steps of a batch skip simulation and
+are checked by the send's preflight, as the API does. The continuations `dlmm/extend`,
+`dlmm/add-range`, `dlmm/zap-out/swap`, and `jupiter/sweep` after a zap-out build locally too.
+A delegate needs Jupiter permission as well for a zap's swap or a missing pair-token strategy.
+`dlmm/zap-out` and `dlmm/remove` with `slippageBps` put a token-ledger Jupiter swap in the same
+transaction; without `protocolLookupTable` they still build, only larger, and fail with
+`TransactionTooLarge` naming the option when nothing fits.
+
+Every `ActionRequest` builds locally. Reads not in the table above, such as `searchPools` and
+`getToken`, still need `createHedgeClient`. The program is the final check: the signer checks above only give a clear error
+before simulation. A send lost to an RPC error is polled by its signature, never resent.
+
 ## Actions
 
-`execute` runs every builder below, with typed bodies (`ActionRequest`). It follows batch
+`execute` on the API client, and the direct client's per-action methods with `send`, run every
+builder below, with typed bodies (`ActionRequest`; the direct client takes the body as `params`). They follow batch
 order (`sendConcurrently` groups, confirmation barriers) and `next` continuations
-(`dlmm/extend`, `dlmm/add-range`, `dlmm/zap-out/swap`, `jupiter/sweep`) on its own.
+(`dlmm/extend`, `dlmm/add-range`, `dlmm/zap-out/swap`, `jupiter/sweep`) on their own.
 
 | Action | Body besides `action` | Notes |
 | --- | --- | --- |
@@ -179,6 +296,9 @@ per vault; nothing is signed or sent. A failure here means the API and this SDK 
 yarn install --frozen-lockfile
 yarn typecheck && yarn test && yarn build
 ```
+
+`src/idl/` is generated by the program's `anchor build`. Run `yarn sync-idl` to copy it from
+`../programs` (or set `HEDGE_VAULT_PROGRAM_REPO`); never edit it by hand.
 
 ## Release
 

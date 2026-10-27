@@ -263,8 +263,11 @@ const requestFields = {
   epoch: U64String,
   /** Unix seconds. */
   createdTs: z.number().int(),
-  /** `resolvable` once a later NAV epoch is posted. */
-  state: z.enum(["pending", "resolvable"]),
+  /**
+   * `resolvable` once a later NAV epoch is posted. `frozen` once a newer epoch starts before its NAV lands:
+   * neither claimable nor cancellable until then.
+   */
+  state: z.enum(["pending", "resolvable", "frozen"]),
   cancellable: z.boolean(),
 };
 

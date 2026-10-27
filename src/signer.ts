@@ -12,6 +12,14 @@ const COMPUTE_BUDGET_PROGRAM = "ComputeBudget111111111111111111111111111111";
 const SET_COMPUTE_UNIT_PRICE = 3;
 
 /**
+ * Pump.fun AMM `init_user_volume_accumulator`, which the app adds before a Jupiter route through
+ * Pump AMM when the swap authority has none: the manager pays its rent. Pump AMM's other
+ * instructions can spend the signer's own SOL, so only this one is allowed.
+ */
+const PUMP_AMM_PROGRAM = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA";
+const PUMP_AMM_INIT_USER_VOLUME_ACCUMULATOR = Buffer.from([94, 6, 202, 115, 255, 96, 232, 183]);
+
+/**
  * Programs the app's V1 builders call as top-level instructions. Token movement happens by CPI
  * inside the Hedge Vault program, so nothing here can transfer funds out of the manager wallet;
  * the manager only pays rent (ATA, DLMM bin arrays) and the capped priority fee.
@@ -80,12 +88,16 @@ function decodeForSigner(base64: string, manager: PublicKey): VersionedTransacti
   return tx;
 }
 
-function checkPrograms(tx: VersionedTransaction, allowed: Set<string>, maxComputeUnitPriceMicroLamports: bigint): void {
+function checkPrograms(
+  tx: VersionedTransaction,
+  allowed: (program: string, data: Uint8Array) => boolean,
+  maxComputeUnitPriceMicroLamports: bigint,
+): void {
   const { staticAccountKeys, compiledInstructions } = tx.message;
   for (const instruction of compiledInstructions) {
     // v0 requires invoked programs to be static keys; an index past them would be malformed.
     const program = staticAccountKeys[instruction.programIdIndex]?.toBase58();
-    if (!program || !allowed.has(program)) throw new UnsafeTransactionError(`Unexpected program ${program ?? "outside static keys"}`);
+    if (!program || !allowed(program, instruction.data)) throw new UnsafeTransactionError(`Unexpected program ${program ?? "outside static keys"}`);
     if (program === COMPUTE_BUDGET_PROGRAM && instruction.data[0] === SET_COMPUTE_UNIT_PRICE) {
       const price = Buffer.from(instruction.data).readBigUInt64LE(1);
       if (price > maxComputeUnitPriceMicroLamports) {
@@ -104,7 +116,11 @@ export function inspectTransaction(base64: string, policy: SigningPolicy): Versi
       throw new UnsafeTransactionError(`Transaction also needs a signature from ${staticAccountKeys[index]?.toBase58() ?? "an unknown key"}`);
     }
   }
-  checkPrograms(tx, new Set([policy.programId, ...BUILDER_PROGRAMS]), policy.maxComputeUnitPriceMicroLamports);
+  const allowed = (program: string, data: Uint8Array) =>
+    program === policy.programId ||
+    BUILDER_PROGRAMS.includes(program) ||
+    (program === PUMP_AMM_PROGRAM && Buffer.from(data).equals(PUMP_AMM_INIT_USER_VOLUME_ACCUMULATOR));
+  checkPrograms(tx, allowed, policy.maxComputeUnitPriceMicroLamports);
   return tx;
 }
 
@@ -116,6 +132,6 @@ export function inspectTransaction(base64: string, policy: SigningPolicy): Versi
 export function inspectPhoenixOnboardTransaction(base64: string, policy: SigningPolicy): VersionedTransaction {
   const tx = decodeForSigner(base64, policy.manager);
   if (tx.message.compiledInstructions.length === 0) throw new UnsafeTransactionError("Onboarding transaction has no instructions");
-  checkPrograms(tx, new Set([PHOENIX_PROGRAM_ID]), policy.maxComputeUnitPriceMicroLamports);
+  checkPrograms(tx, (program) => program === PHOENIX_PROGRAM_ID, policy.maxComputeUnitPriceMicroLamports);
   return tx;
 }

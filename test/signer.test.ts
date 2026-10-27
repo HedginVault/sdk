@@ -81,6 +81,25 @@ describe("inspectTransaction", () => {
     expect(signed.signatures.every((sig) => sig.some((b) => b !== 0))).toBe(true);
   });
 
+  it("accepts the Pump.fun AMM volume accumulator a Jupiter route through Pump AMM needs first", () => {
+    const pumpAmm = new PublicKey("pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA");
+    const init = new TransactionInstruction({
+      programId: pumpAmm,
+      keys: [{ pubkey: manager.publicKey, isSigner: true, isWritable: true }],
+      data: Buffer.from([94, 6, 202, 115, 255, 96, 232, 183]),
+    });
+    expect(inspectTransaction(build([init, vaultIx()]), policy).message.compiledInstructions).toHaveLength(2);
+  });
+
+  it("refuses any other Pump.fun AMM instruction, such as a buy paid from the manager wallet", () => {
+    const buy = new TransactionInstruction({
+      programId: new PublicKey("pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"),
+      keys: [{ pubkey: manager.publicKey, isSigner: true, isWritable: true }],
+      data: Buffer.from([102, 6, 61, 18, 1, 218, 235, 234]),
+    });
+    expect(() => inspectTransaction(build([buy, vaultIx()]), policy)).toThrow("Unexpected program pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA");
+  });
+
   it("refuses a transfer out of the manager wallet", () => {
     const base64 = build([SystemProgram.transfer({ fromPubkey: manager.publicKey, toPubkey: Keypair.generate().publicKey, lamports: 1 }), vaultIx()]);
     expect(() => inspectTransaction(base64, policy)).toThrow(/Unexpected program 11111111111111111111111111111111/);

@@ -34,14 +34,14 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.test.json",
+    "check": "tsc -p tsconfig.test.json",
     "check:cjs": "node --no-experimental-require-module -e \"require('./dist')\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "check-api": "tsx --env-file=.env src/check-api.ts",
     "sync-idl": "node scripts/sync-idl.mjs",
     "prepare": "tsc -p tsconfig.json",
-    "prepublishOnly": "yarn typecheck && yarn test && yarn build && yarn check:cjs"
+    "prepublishOnly": "yarn run check && yarn test && yarn build && yarn check:cjs"
   },
   "peerDependencies": {
     "@solana/web3.js": "^1.98.4"

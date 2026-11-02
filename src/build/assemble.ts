@@ -16,6 +16,12 @@ const MAX_COMPUTE_UNITS = 1_400_000;
 const MIN_MICRO_LAMPORTS = 1_000;
 const MAX_MICRO_LAMPORTS = 10_000;
 
+/**
+ * The most accounts a transaction may lock, lookup-table accounts included. The raise to 128
+ * (feature 9LZdXeKGeBV6hRLdxS1rHbHoEUsKqesCC2ZAPTPKJAbK) is not active on mainnet.
+ */
+export const MAX_TX_ACCOUNTS = 64;
+
 export interface Assembled {
   /** Base64 v0 transaction, unsigned by the payer. */
   transaction: string;
@@ -23,6 +29,8 @@ export interface Assembled {
   blockhash: string;
   /** Consecutive marked steps may be sent together; an unmarked step is a confirmation barrier. */
   sendConcurrently?: boolean;
+  /** What the step does, for progress display in a batch, such as "Set up strategy". */
+  label?: string;
 }
 
 export interface AssembleOptions {
@@ -33,6 +41,9 @@ export interface AssembleOptions {
    * cannot see. It then keeps the 1.4M CU limit, and the send's preflight validates it.
    */
   deferSimulation?: boolean;
+  /** CU limit of a deferred transaction whose cost is known; without one it asks the 1.4M ceiling. */
+  computeUnits?: number;
+  label?: string;
 }
 
 /** One transaction's instructions, before `assemble` adds the compute budget, fee, blockhash and simulation. */
@@ -76,7 +87,7 @@ export async function assemble(
   env: BuildEnv,
   instructions: TransactionInstruction[],
   lookupTables: AddressLookupTableAccount[] = [],
-  { signers = [], deferSimulation = false }: AssembleOptions = {},
+  { signers = [], deferSimulation = false, computeUnits = MAX_COMPUTE_UNITS, label }: AssembleOptions = {},
 ): Promise<Assembled> {
   const writableAccounts = [
     ...new Map(
@@ -95,7 +106,7 @@ export async function assemble(
 
   if (deferSimulation) {
     const { blockhash } = await env.connection.getLatestBlockhash("confirmed");
-    return { transaction: serialize(compile(blockhash, MAX_COMPUTE_UNITS), signers), simulation: { unitsConsumed: 0, deferred: true }, blockhash };
+    return { transaction: serialize(compile(blockhash, computeUnits), signers), simulation: { unitsConsumed: 0, deferred: true }, blockhash, ...(label && { label }) };
   }
   // Simulating before fetching the blockhash gives signing its full lifetime and sizes the CU limit to this transaction.
   const sim = await env.connection.simulateTransaction(compile(PublicKey.default.toBase58(), MAX_COMPUTE_UNITS), {
@@ -110,7 +121,7 @@ export async function assemble(
   const consumed = sim.value.unitsConsumed ?? MAX_COMPUTE_UNITS;
   const units = Math.min(MAX_COMPUTE_UNITS, Math.max(consumed, Math.ceil(consumed * 1.2) + 10_000));
   const { blockhash } = await env.connection.getLatestBlockhash("confirmed");
-  return { transaction: serialize(compile(blockhash, units), signers), simulation: { unitsConsumed }, blockhash };
+  return { transaction: serialize(compile(blockhash, units), signers), simulation: { unitsConsumed }, blockhash, ...(label && { label }) };
 }
 
 function serialize(tx: VersionedTransaction, signers: Keypair[]): string {
@@ -136,9 +147,9 @@ export async function refreshBatch<T extends Assembled>(env: BuildEnv, steps: T[
 }
 
 /**
- * Whether the instructions, with the compute-budget pair `assemble` prepends, serialize into one packet.
- * Measured rather than caught: `serialize()` throws only once the message alone overruns, missing the
- * signatures that can push it over.
+ * Whether the instructions, with the compute-budget pair `assemble` prepends, serialize into one packet
+ * and lock at most `MAX_TX_ACCOUNTS` accounts. Measured rather than caught: `serialize()` throws only
+ * once the message alone overruns, missing the signatures that can push it over.
  */
 export function fitsInTransaction(payer: PublicKey, instructions: TransactionInstruction[], lookupTables: AddressLookupTableAccount[] = []): boolean {
   try {
@@ -151,7 +162,11 @@ export function fitsInTransaction(payer: PublicKey, instructions: TransactionIns
         ...instructions,
       ],
     }).compileToV0Message(lookupTables);
-    return new VersionedTransaction(message).serialize().length <= PACKET_DATA_SIZE;
+    const accounts = message.addressTableLookups.reduce(
+      (count, lookup) => count + lookup.writableIndexes.length + lookup.readonlyIndexes.length,
+      message.staticAccountKeys.length,
+    );
+    return accounts <= MAX_TX_ACCOUNTS && new VersionedTransaction(message).serialize().length <= PACKET_DATA_SIZE;
   } catch (e) {
     if (e instanceof RangeError) return false;
     throw e;

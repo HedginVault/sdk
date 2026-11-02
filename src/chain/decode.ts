@@ -1,4 +1,5 @@
 import type { IdlAccounts } from "@coral-xyz/anchor";
+import { PublicKey } from "@solana/web3.js";
 import type { HedgeVault } from "../idl/hedge_vault";
 import type { RequestQueue, TokenInfo, VaultDetail, VaultSummary } from "../schemas";
 
@@ -46,6 +47,31 @@ export function decodeMint(data: Buffer): { decimals: number; supply: bigint } |
 export const decodeTokenAmount = (data: Buffer | undefined): bigint =>
   data && data.length >= TOKEN_ACCOUNT_SPAN ? data.readBigUInt64LE(64) : 0n;
 
+/** A child vault names its parent; a vault that takes deposits has the default key there. */
+export const isChildAccount = (a: Pick<VaultAccount, "parent">) => !a.parent.equals(PublicKey.default);
+
+/**
+ * Mint and symbol of a Metaplex `Metadata` v1 account (key, update authority, mint, then length-prefixed name and
+ * symbol, NUL-padded to their caps). Null for anything else.
+ */
+export function decodeMetadataSymbol(data: Buffer): { mint: string; symbol: string } | null {
+  const KEY_METADATA_V1 = 4;
+  if (data.length < 65 || data[0] !== KEY_METADATA_V1) return null;
+  let o = 65;
+  const str = () => {
+    if (o + 4 > data.length) return null;
+    const n = data.readUInt32LE(o);
+    if (o + 4 + n > data.length) return null;
+    const s = data.subarray(o + 4, o + 4 + n).toString("utf8").replace(/\0+$/, "");
+    o += 4 + n;
+    return s;
+  };
+  const name = str();
+  const symbol = str();
+  if (name === null || symbol === null) return null;
+  return { mint: new PublicKey(data.subarray(33, 65)).toBase58(), symbol };
+}
+
 const shortSymbol = (mint: string) => `${mint.slice(0, 4)}…${mint.slice(-4)}`;
 
 export const tokenInfo = (mint: string, decimals: number, jupiterSymbol: string | undefined): TokenInfo => ({
@@ -63,12 +89,17 @@ export function toVaultSummary(address: string, a: VaultAccount, token: TokenInf
     depositSymbol: token.symbol,
     depositDecimals: token.decimals,
     totalAssets: a.totalAssets.toString(),
+    approvalRequired: a.approvalRequired !== 0,
+    parent: isChildAccount(a) ? a.parent.toBase58() : null,
+    childCount: a.childCount,
   };
 }
 
 export interface VaultBalances {
   shareMint: string;
   shareSupply: bigint;
+  /** The share mint's Metaplex symbol; null until the vault's share metadata exists. */
+  shareSymbol: string | null;
   idleBalance: bigint;
 }
 
@@ -85,6 +116,7 @@ export function toVaultDetail(address: string, a: VaultAccount, token: TokenInfo
     authority: a.authority.toBase58(),
     shareMint: b.shareMint,
     shareSupply: b.shareSupply.toString(),
+    shareSymbol: b.shareSymbol,
     idleBalance: b.idleBalance.toString(),
     pendingDeposits: a.pendingDeposits.toString(),
     pendingWithdrawalShares: a.pendingWithdrawalShares.toString(),
@@ -128,22 +160,25 @@ export function toRequestQueue(
   const navEpoch = BigInt(vault.navEpoch.toString());
   const navPerShare = BigInt(vault.navPerShare.toString());
   const current = epochOf(nowSeconds);
+  const approvalRequired = vault.approvalRequired !== 0;
   const common = (r: DepositRequestAccount | WithdrawalRequestAccount) => {
     const state = requestState(navEpoch, BigInt(r.epoch.toString()), current);
-    return { owner: r.authority.toBase58(), epoch: r.epoch.toString(), createdTs: r.createdTs.toNumber(), state };
+    // Only on a vault that requires approval; such a request waits for the manager and stays cancellable.
+    const awaitingApproval = approvalRequired && r.approved === 0;
+    return { owner: r.authority.toBase58(), epoch: r.epoch.toString(), createdTs: r.createdTs.toNumber(), state, awaitingApproval };
   };
   const byAge = (a: { createdTs: number }, b: { createdTs: number }) => a.createdTs - b.createdTs;
   return {
     deposits: deposits
       .map((r) => {
         const base = common(r);
-        return { ...base, amount: r.amount.toString(), cancellable: base.state === "pending" || navPerShare === 0n };
+        return { ...base, amount: r.amount.toString(), cancellable: base.awaitingApproval || base.state === "pending" || navPerShare === 0n };
       })
       .sort(byAge),
     withdrawals: withdrawals
       .map((r) => {
         const base = common(r);
-        return { ...base, shares: r.shares.toString(), cancellable: base.state === "pending" };
+        return { ...base, shares: r.shares.toString(), cancellable: base.awaitingApproval || base.state === "pending" };
       })
       .sort(byAge),
   };

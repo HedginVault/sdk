@@ -88,6 +88,9 @@ const VAULT_MESSAGES: Record<string, string> = {
   InvalidDelegatePermissions: "Pick at least one permission for the delegate.",
   InvalidDelegateExpiry: "The delegate's expiry must be in the future, or never.",
   VaultHasDelegates: "Remove every delegate before closing the vault.",
+  RequestNotApproved: "This request is waiting for the vault manager's approval.",
+  ApprovedAmountMismatch: "This request changed since you reviewed it. Check the new amount and approve again.",
+  InvalidRejecter: "Only the vault manager or an admin can reject this request.",
 };
 
 const anchorFrameworkName = new Map(Object.entries(LangErrorCode).map(([name, code]) => [code, name]));

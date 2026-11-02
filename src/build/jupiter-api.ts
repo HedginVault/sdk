@@ -22,8 +22,8 @@ const baseUnits = z.string().regex(/^\d+$/);
 const QuoteResponseSchema = z.object({
   inAmount: baseUnits,
   outAmount: baseUnits,
-  priceImpactPct: z.string(),
-  routePlan: z.array(z.object({ swapInfo: z.object({ label: z.string() }) })),
+  priceImpactPct: z.string().catch(""),
+  routePlan: z.array(z.object({ swapInfo: z.object({ label: z.string() }).passthrough() }).passthrough()),
 });
 
 const InstructionSchema = z.object({
@@ -46,6 +46,8 @@ export type SwapInstructions = z.infer<typeof SwapInstructionsSchema>;
 export interface JupiterQuote {
   raw: unknown;
   view: Omit<Quote, "slippageBps">;
+  /** Every hop and split as Jupiter sent it: two quotes with equal plans are the same route. */
+  routePlan: unknown[];
 }
 
 export interface QuoteParams {
@@ -75,8 +77,9 @@ async function call<T extends z.ZodTypeAny>(
   }
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    const noRoute = failure.noRoute && /NO_ROUTES_FOUND|COULD_NOT_FIND_ANY_ROUTE/.test(detail);
-    throw new ApiError(502, failure.code, noRoute ? (failure.noRoute ?? failure.message) : failure.message);
+    // Only `JupiterNoRoute` is final; a rate limit or outage keeps `failure.code` and is worth a retry.
+    if (failure.noRoute && /NO_ROUTES_FOUND|COULD_NOT_FIND_ANY_ROUTE/.test(detail)) throw new ApiError(502, "JupiterNoRoute", failure.noRoute);
+    throw new ApiError(502, failure.code, failure.message);
   }
   const endpoint = path.split("?")[0];
   let raw: unknown;
@@ -107,7 +110,7 @@ export async function requestQuote(env: Http, p: QuoteParams): Promise<JupiterQu
     noRoute: "Jupiter found no swap route for this pair and amount. Try a different amount or token.",
   });
   const routeLabels = data.routePlan.map((r) => r.swapInfo.label);
-  return { raw, view: { inAmount: data.inAmount, outAmount: data.outAmount, priceImpactPct: data.priceImpactPct, routeLabels } };
+  return { raw, view: { inAmount: data.inAmount, outAmount: data.outAmount, priceImpactPct: data.priceImpactPct, routeLabels }, routePlan: data.routePlan };
 }
 
 /** `POST /swap-instructions` for a quote, swapping as `user`, a program PDA that signs inside the CPI. */

@@ -1,13 +1,14 @@
 import { BN } from "@coral-xyz/anchor";
-import { type AccountInfo, PublicKey, VersionedTransaction } from "@solana/web3.js";
+import { type AccountInfo, AddressLookupTableAccount, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { jupiterConfig } from "../src/build/jupiter-api";
 import { meteora } from "../src/build/meteora";
 import { localTransport } from "../src/build/transport";
-import { getAssociatedTokenAddress, getConfigPda, getStrategyPda } from "../src/chain/pda";
+import { getAssociatedTokenAddress, getConfigPda, getStrategyPda, getSwapAuthorityPda } from "../src/chain/pda";
 import type { DirectActionRequest } from "../src/direct";
 import { createDirectClient } from "../src/direct";
 import {
+  BONK,
   DELEGATE,
   DLMM,
   DLMM_STRATEGY,
@@ -20,6 +21,7 @@ import {
   POSITION,
   PROGRAM,
   SOL,
+  TOKEN_2022,
   TOKEN_PROGRAM,
   USDC,
   V,
@@ -50,6 +52,9 @@ const LITE = "https://lite-api.jup.ag/swap/v1";
 const SOL_ATA = getAssociatedTokenAddress(VAULT, SOL, TOKEN_PROGRAM);
 const USDC_ATA = getAssociatedTokenAddress(VAULT, USDC, TOKEN_PROGRAM);
 const LOOKUP_TABLE_PROGRAM = new PublicKey("AddressLookupTab1e1111111111111111111111111");
+const SWAP_AUTHORITY = getSwapAuthorityPda(VAULT, PROGRAM);
+const AUTHORITY_SOL_ATA = getAssociatedTokenAddress(SWAP_AUTHORITY, SOL, TOKEN_PROGRAM);
+const AUTHORITY_USDC_ATA = getAssociatedTokenAddress(SWAP_AUTHORITY, USDC, TOKEN_PROGRAM);
 
 const meta = (pubkey: PublicKey, isSigner = false, isWritable = false) => ({ pubkey: pubkey.toBase58(), isSigner, isWritable });
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
@@ -71,16 +76,25 @@ function tokenAccount(mint: PublicKey, owner: PublicKey, amount: bigint): Buffer
   return data;
 }
 
-/** A SOL to USDC route for the vault, with Jupiter's token ledger when `ledger`; `extraAmms` lengthen it past the packet. */
-function swapInstructions(ledger: boolean, extraAmms: PublicKey[] = []) {
-  const fixed = [meta(TOKEN_PROGRAM), meta(VAULT, true), meta(SOL_ATA, false, true), meta(USDC_ATA, false, true), meta(USDC_ATA, false, true), meta(USDC), meta(JUP), meta(JUP)];
+/** A route out of `source` (SOL to USDC by default) for the vault's swap authority, with Jupiter's token ledger when `ledger`; `extraAmms` lengthen it past the packet. */
+function swapInstructions(ledger: boolean, extraAmms: PublicKey[] = [], source = SOL) {
+  const fixed = [
+    meta(TOKEN_PROGRAM),
+    meta(SWAP_AUTHORITY, true),
+    meta(AUTHORITY_SOL_ATA, false, true),
+    meta(AUTHORITY_USDC_ATA, false, true),
+    meta(AUTHORITY_USDC_ATA, false, true),
+    meta(USDC),
+    meta(JUP),
+    meta(JUP),
+  ];
   return {
     swapInstruction: {
       programId: JUP.toBase58(),
       accounts: ledger ? [...fixed.slice(0, 7), meta(LEDGER, false, true), meta(JUP), meta(JUP), ...[...AMM, ...extraAmms].map((k) => meta(k, false, true))] : [...fixed, meta(JUP), ...AMM.map((k) => meta(k, false, true))],
       data: Buffer.from([...(ledger ? ROUTE_WITH_TOKEN_LEDGER : ROUTE), 7]).toString("base64"),
     },
-    tokenLedgerInstruction: ledger ? { programId: JUP.toBase58(), accounts: [meta(LEDGER, false, true), meta(SOL_ATA)], data: Buffer.from(SET_TOKEN_LEDGER).toString("base64") } : null,
+    tokenLedgerInstruction: ledger ? { programId: JUP.toBase58(), accounts: [meta(LEDGER, false, true), meta(getAssociatedTokenAddress(SWAP_AUTHORITY, source, TOKEN_PROGRAM))], data: Buffer.from(SET_TOKEN_LEDGER).toString("base64") } : null,
     setupInstructions: [],
     cleanupInstruction: null,
     addressLookupTableAddresses: [ALT.toBase58()],
@@ -89,14 +103,17 @@ function swapInstructions(ledger: boolean, extraAmms: PublicKey[] = []) {
 
 const quoteResponse = { inAmount: "9500100", outAmount: "1000", priceImpactPct: "0", routePlan: [{ swapInfo: { label: "Meteora DLMM" } }] };
 
-function fakeJupiter(o: { ledger?: boolean; extraAmms?: PublicKey[] } = {}) {
+/** Jupiter answering a route with the token ledger exactly when the build asks for one, unless `ledger` says otherwise. */
+function fakeJupiter(o: { ledger?: boolean; extraAmms?: PublicKey[]; source?: PublicKey } = {}) {
   const calls: { url: string; body: unknown }[] = [];
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = String(input);
-    calls.push({ url, body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined });
+    const body: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+    calls.push({ url, body });
     if (url.includes("/quote?")) return json(quoteResponse);
     if (url.includes("/tokens/v2/search")) return json([{ id: SOL.toBase58(), symbol: "SOL" }]);
-    return json(swapInstructions(o.ledger ?? true, o.extraAmms));
+    const asked = typeof body === "object" && body !== null && "useTokenLedger" in body && body.useTokenLedger === true;
+    return json(swapInstructions(o.ledger ?? asked, o.extraAmms, o.source));
   };
   return { fetch, calls };
 }
@@ -130,6 +147,19 @@ async function build(
   });
   const steps = await transport.build(action, body);
   return { steps, reads: fake.reads, jupiter, txs: steps.map((s) => decodeTx(Buffer.from(s.transaction, "base64"), accounts)) };
+}
+
+/** The accounts of each top-level Jupiter instruction of a built transaction, lookup tables resolved. */
+function jupiterKeys(transaction: string, accounts: Map<string, AccountInfo<Buffer>>) {
+  const tx = VersionedTransaction.deserialize(Buffer.from(transaction, "base64"));
+  const tables = tx.message.addressTableLookups.flatMap(({ accountKey }) => {
+    const table = accounts.get(accountKey.toBase58());
+    return table ? [new AddressLookupTableAccount({ key: accountKey, state: AddressLookupTableAccount.deserialize(table.data) })] : [];
+  });
+  const keys = tx.message.getAccountKeys({ addressLookupTableAccounts: tables });
+  return tx.message.compiledInstructions
+    .filter((ix) => keys.get(ix.programIdIndex)?.equals(JUP))
+    .map((ix) => ix.accountKeyIndexes.map((i) => keys.get(i)?.toBase58()));
 }
 
 const binArray = (index: number) => meteora().deriveBinArray(POOL, new BN(index), DLMM)[0].toBase58();
@@ -354,32 +384,76 @@ describe("direct dlmm/claim-fee and dlmm/close", () => {
 describe("direct dlmm/zap-out", () => {
   const zap = { vault: V, position: pos, slippageBps: 900 };
 
-  /** The fixture's open limit order rests in the same pool, so SOL stays in use until it is gone. */
-  const withoutLimitOrder = async () => {
+  /** The fixture's open limit order rests in the same pool, so SOL stays in use until it is gone; `solBalance` is the vault's SOL before the zap. */
+  const withoutLimitOrder = async (solBalance?: bigint) => {
     const accounts = await chainWithTables();
     accounts.delete(LIMIT_STRATEGY.toBase58());
+    if (solBalance !== undefined) accounts.set(SOL_ATA.toBase58(), info(TOKEN_PROGRAM, tokenAccount(SOL, VAULT, solBalance)));
     return accounts;
   };
 
-  it("snapshots the token ledger, removes, claims, swaps what came back, closes, then sweeps", async () => {
+  it("snapshots the vault's SOL, removes, claims, swaps what came back as the swap authority, and closes both emptied strategies", async () => {
     const jupiter = fakeJupiter();
-    const { steps, txs } = await build("dlmm/zap-out", zap, { accounts: await withoutLimitOrder(), jupiter, protocolLookupTable: PROTOCOL_ALT });
+    const accounts = await withoutLimitOrder();
+    const { steps, txs } = await build("dlmm/zap-out", zap, { accounts, jupiter, protocolLookupTable: PROTOCOL_ALT });
     expect(txs.map((t) => t.programs)).toEqual([
-      [CB, CB, ATA_PROGRAM, ATA_PROGRAM, JUP.toBase58(), "meteoraDlmmRemoveLiquidity", "meteoraDlmmClaimFee", "jupiterSwap", "vaultCloseStrategy"],
+      [CB, CB, ATA_PROGRAM, ATA_PROGRAM, JUP.toBase58(), "meteoraDlmmRemoveLiquidity", "meteoraDlmmClaimFee", "jupiterSwapViaAuthority", "vaultCloseStrategy", "vaultCloseStrategy"],
     ]);
-    // The quote covers the position's X and its unclaimed X fees, capped at the config's 300 bps.
+    // The quote covers the position's X and its unclaimed X fees, capped at the config's 300 bps, at the in-batch cap first.
     expect(jupiter.calls[0]?.url).toBe(
-      `${LITE}/quote?inputMint=${SOL.toBase58()}&outputMint=${USDC.toBase58()}&amount=9500100&slippageBps=300&swapMode=ExactIn&excludeDexes=Kipseli%2CObsidian%2CQuantum%2C1DEX%2CPump.fun&maxAccounts=30`,
+      `${LITE}/quote?inputMint=${SOL.toBase58()}&outputMint=${USDC.toBase58()}&amount=9500100&slippageBps=300&swapMode=ExactIn&excludeDexes=Kipseli%2CObsidian%2CQuantum%2C1DEX&maxAccounts=27`,
     );
-    expect(jupiter.calls[1]?.body).toMatchObject({ userPublicKey: V, useTokenLedger: true });
-    expect(txs[0]?.hedge[2]).toMatchObject({ name: "jupiterSwap", args: { amount: "9500100", slippageBps: 300 }, accounts: { strategy: SOL_STRATEGY.toBase58(), source_mint: SOL.toBase58(), destination_mint: USDC.toBase58() } });
+    expect(jupiter.calls.at(-1)?.body).toMatchObject({ userPublicKey: SWAP_AUTHORITY.toBase58(), useTokenLedger: true });
+    expect(txs[0]?.hedge[2]).toMatchObject({
+      name: "jupiterSwapViaAuthority",
+      args: { amount: "9500100", slippageBps: 300 },
+      accounts: { strategy: SOL_STRATEGY.toBase58(), source_mint: SOL.toBase58(), destination_mint: USDC.toBase58(), swap_authority: SWAP_AUTHORITY.toBase58() },
+    });
+    expect(txs[0]?.hedge.slice(3).map((h) => h.accounts.strategy)).toEqual([DLMM_STRATEGY.toBase58(), SOL_STRATEGY.toBase58()]);
+    // Jupiter built the ledger for the swap authority's SOL account; it must snapshot the vault's, where remove and claim pay.
+    expect(jupiterKeys(steps[0]?.transaction ?? "", accounts)).toEqual([[LEDGER.toBase58(), SOL_ATA.toBase58()]]);
     expect(txs[0]?.lookupTables).toEqual([ALT.toBase58(), PROTOCOL_ALT.toBase58()]);
+    expect(steps[0]?.next).toBeUndefined();
+  });
+
+  it("leaves a SOL balance the vault already held to a sweep", async () => {
+    const { steps, txs } = await build("dlmm/zap-out", zap, { accounts: await withoutLimitOrder(5n), protocolLookupTable: PROTOCOL_ALT });
+    expect(txs[0]?.hedge.map((h) => h.name)).toEqual(["meteoraDlmmRemoveLiquidity", "meteoraDlmmClaimFee", "jupiterSwapViaAuthority", "vaultCloseStrategy"]);
     expect(steps[0]?.next).toEqual({ path: "jupiter/sweep", body: { vault: V, mint: SOL.toBase58(), slippageBps: 300 } });
   });
 
   it("leaves SOL and its strategy alone while an open limit order still uses it", async () => {
-    const { steps } = await build("dlmm/zap-out", zap);
+    const { steps } = await build("dlmm/zap-out", zap, { protocolLookupTable: PROTOCOL_ALT });
     expect(steps.map((s) => s.next)).toEqual([undefined]);
+  });
+
+  it("ends in SOL by selling the position's USDC side, keeping SOL in its strategy", async () => {
+    const jupiter = fakeJupiter({ source: USDC });
+    const accounts = await withoutLimitOrder();
+    const { steps, txs } = await build("dlmm/zap-out", { ...zap, outputMint: SOL.toBase58() }, { accounts, jupiter, protocolLookupTable: PROTOCOL_ALT });
+    expect(jupiterKeys(steps[0]?.transaction ?? "", accounts)).toEqual([[LEDGER.toBase58(), USDC_ATA.toBase58()]]);
+    expect(txs[0]?.hedge.find((h) => h.name === "jupiterSwapViaAuthority")?.accounts).toMatchObject({ source_mint: USDC.toBase58(), destination_mint: SOL.toBase58() });
+    expect(jupiter.calls[0]?.url).toContain(`inputMint=${USDC.toBase58()}&outputMint=${SOL.toBase58()}`);
+    expect(steps.map((s) => s.next)).toEqual([undefined]);
+  });
+
+  it("refuses an output mint outside the pool", async () => {
+    expect(await failure(build("dlmm/zap-out", { ...zap, outputMint: key(77).toBase58() }))).toMatchObject({
+      code: "Validation",
+      message: "zap out can only end in one of the pool's tokens or the deposit token",
+    });
+  });
+
+  it("with separateSwap withdraws without swapping, then swaps what came back under minOut and sweeps the earlier SOL", async () => {
+    const jupiter = fakeJupiter();
+    const minOut = { inAmount: "9500100", minOutAmount: "990" };
+    const { steps, txs } = await build("dlmm/zap-out", { ...zap, separateSwap: true, minOut }, { accounts: await withoutLimitOrder(5n), jupiter, protocolLookupTable: PROTOCOL_ALT });
+    expect(txs[0]?.hedge.map((h) => h.name)).toEqual(["meteoraDlmmRemoveLiquidity", "meteoraDlmmClaimFee", "vaultCloseStrategy"]);
+    expect(jupiter.calls).toEqual([]);
+    expect(steps[0]?.next).toEqual({
+      path: "dlmm/zap-out/swap",
+      body: { vault: V, sources: [{ mint: SOL.toBase58(), balanceBefore: "5", minOut }], slippageBps: 300, sweepAfter: SOL.toBase58() },
+    });
   });
 
   it("refuses a route without a valid token ledger", async () => {
@@ -395,15 +469,18 @@ describe("direct dlmm/zap-out", () => {
     });
   });
 
-  it("executes the zap, then follows next to the sweep, which closes the emptied SOL strategy", async () => {
-    const accounts = await withoutLimitOrder();
+  it("executes the zap, then follows next to the sweep, which sells the earlier SOL and closes its strategy", async () => {
+    const accounts = await withoutLimitOrder(5n);
     // Once the zap lands the position strategy is gone, so the sweep sees SOL unused.
     const rpc = { send: async () => void accounts.delete(DLMM_STRATEGY.toBase58()) };
     const jupiter = fakeJupiter();
-    const { outcome, progress, txs } = await run({ action: "dlmm/zap-out", ...zap }, rpc, manager, accounts, { fetch: jupiter.fetch });
+    const { outcome, progress, txs } = await run({ action: "dlmm/zap-out", ...zap }, rpc, manager, accounts, { fetch: jupiter.fetch, protocolLookupTable: PROTOCOL_ALT.toBase58() });
     expect(outcome).toEqual({ kind: "confirmed", signatures: [expect.any(String), expect.any(String)] });
     expect(progress.filter((p) => p.kind === "building").map((p) => p.kind === "building" && p.action)).toEqual(["dlmm/zap-out", "jupiter/sweep"]);
-    expect(txs[1]?.hedge.map((h) => [h.name, h.accounts.strategy])).toEqual([["vaultCloseStrategy", SOL_STRATEGY.toBase58()]]);
+    expect(txs[1]?.hedge.map((h) => [h.name, h.accounts.strategy])).toEqual([
+      ["jupiterSwapViaAuthority", SOL_STRATEGY.toBase58()],
+      ["vaultCloseStrategy", SOL_STRATEGY.toBase58()],
+    ]);
   });
 });
 
@@ -414,9 +491,27 @@ describe("direct dlmm/zap-out/swap", () => {
     const jupiter = fakeJupiter({ ledger: false });
     const sources = [{ mint: SOL.toBase58(), balanceBefore: "1000" }, { mint: key(21).toBase58(), balanceBefore: "0" }];
     const { steps, txs } = await build("dlmm/zap-out/swap", { vault: V, sources, slippageBps: 50 }, { accounts, jupiter });
-    expect(txs[0]?.hedge.map((h) => [h.name, arg(h, "amount")])).toEqual([["jupiterSwap", "700"]]);
+    expect(txs[0]?.hedge.map((h) => [h.name, arg(h, "amount")])).toEqual([["jupiterSwapViaAuthority", "700"]]);
     expect(jupiter.calls[0]?.url).toContain("amount=700&slippageBps=50");
     expect(steps[0]?.next).toEqual({ path: "dlmm/zap-out/swap", body: { vault: V, sources: [sources[1]], slippageBps: 50 } });
+  });
+
+  it("swaps into the source's output mint and sweeps sweepAfter once no source is left", async () => {
+    const accounts = await chainWithTables();
+    accounts.set(getAssociatedTokenAddress(VAULT, BONK, TOKEN_2022).toBase58(), info(TOKEN_2022, tokenAccount(BONK, VAULT, 40n)));
+    const body = { vault: V, sources: [{ mint: BONK.toBase58(), balanceBefore: "0", outputMint: SOL.toBase58() }], slippageBps: 50, sweepAfter: SOL.toBase58() };
+    const { steps, txs } = await build("dlmm/zap-out/swap", body, { accounts, jupiter: fakeJupiter({ ledger: false }) });
+    expect(txs[0]?.hedge.find((h) => h.name === "jupiterSwapViaAuthority")?.accounts).toMatchObject({
+      source_mint: BONK.toBase58(),
+      destination_mint: SOL.toBase58(),
+      strategy: SOL_STRATEGY.toBase58(),
+    });
+    expect(steps[0]?.next).toEqual({ path: "jupiter/sweep", body: { vault: V, mint: SOL.toBase58(), slippageBps: 50 } });
+  });
+
+  it("refuses a source swapped into itself", async () => {
+    const body = { vault: V, sources: [{ mint: SOL.toBase58(), balanceBefore: "0", outputMint: SOL.toBase58() }], slippageBps: 50 };
+    expect(await failure(build("dlmm/zap-out/swap", body))).toMatchObject({ code: "Validation", message: "zap source mint must differ from its output mint" });
   });
 
   it("refuses when the balance fell below its pre-zap value", async () => {
@@ -428,11 +523,48 @@ describe("direct dlmm/zap-out/swap", () => {
 });
 
 describe("direct dlmm/remove with a zap", () => {
+  const remove = { vault: V, position: pos, bpsToRemove: 5000, lowerBinId: 101, upperBinId: 104, slippageBps: 100 };
+
   it("removes a share and swaps that share of X in the same transaction", async () => {
     const jupiter = fakeJupiter();
-    const { txs } = await build("dlmm/remove", { vault: V, position: pos, bpsToRemove: 5000, lowerBinId: 101, upperBinId: 104, slippageBps: 100 }, { jupiter });
-    expect(txs[0]?.programs).toEqual([CB, CB, ATA_PROGRAM, ATA_PROGRAM, JUP.toBase58(), "meteoraDlmmRemoveLiquidityRange", "jupiterSwap"]);
+    const { txs } = await build("dlmm/remove", remove, { jupiter });
+    expect(txs[0]?.programs).toEqual([CB, CB, ATA_PROGRAM, ATA_PROGRAM, JUP.toBase58(), "meteoraDlmmRemoveLiquidityRange", "jupiterSwapViaAuthority"]);
     expect(jupiter.calls[0]?.url).toContain("amount=2000000&slippageBps=100");
+  });
+
+  /** `fakeJupiter`, except every quote answers `quote`. */
+  const quoting = (quote: () => Response): ReturnType<typeof fakeJupiter> => {
+    const base = fakeJupiter();
+    return { calls: base.calls, fetch: async (input, init) => (String(input).includes("/quote?") ? quote() : base.fetch(input, init)) };
+  };
+
+  it("removes without the swap when Jupiter has no route for the share", async () => {
+    const jupiter = quoting(() => new Response(JSON.stringify({ error: "No routes found", errorCode: "COULD_NOT_FIND_ANY_ROUTE" }), { status: 400 }));
+    const { txs } = await build("dlmm/remove", remove, { jupiter });
+    expect(txs[0]?.hedge.map((h) => h.name)).toEqual(["meteoraDlmmRemoveLiquidityRange"]);
+  });
+
+  it("fails the build instead of skipping the swap while Jupiter is down", async () => {
+    const jupiter = quoting(() => new Response("upstream down", { status: 500 }));
+    expect(await failure(build("dlmm/remove", remove, { jupiter }))).toEqual({
+      name: "ApiError",
+      code: "JupiterQuoteFailed",
+      message: "Jupiter could not quote this swap right now. Try again in a moment.",
+    });
+  });
+
+  it("fails with QuoteMoved when the fresh quote pays less than minOut, scaled to the amount swapped", async () => {
+    // 1000 out for 2_000_000 in; approving 501 per 1_000_000 floors 2_000_000 at 1002.
+    const minOut = { inAmount: "1000000", minOutAmount: "501" };
+    expect(await failure(build("dlmm/remove", { ...remove, minOut }))).toMatchObject({ code: "QuoteMoved" });
+  });
+
+  it("with separateSwap removes without swapping and continues with a swap of what came back", async () => {
+    const jupiter = fakeJupiter();
+    const { steps, txs } = await build("dlmm/remove", { ...remove, separateSwap: true }, { jupiter });
+    expect(txs[0]?.hedge.map((h) => h.name)).toEqual(["meteoraDlmmRemoveLiquidityRange"]);
+    expect(jupiter.calls).toEqual([]);
+    expect(steps[0]?.next).toEqual({ path: "dlmm/zap-out/swap", body: { vault: V, sources: [{ mint: SOL.toBase58(), balanceBefore: "0" }], slippageBps: 100 } });
   });
 });
 

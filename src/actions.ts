@@ -8,6 +8,26 @@ export type DlmmShape = "spot" | "curve" | "bidAsk";
 
 export type VaultStatus = "normal" | "paused" | "reduceOnly";
 
+/**
+ * The least a swap may return: the shown quote's output after its slippage, for the input it was
+ * quoted for. A build swapping a different input scales it, so it holds as a price floor.
+ */
+export interface MinOut {
+  /** Positive. */
+  inAmount: BaseUnitString;
+  minOutAmount: BaseUnitString;
+}
+
+/** Zap options shared by `dlmm/zap-out` and a zapping `dlmm/remove`. */
+interface ZapFloors {
+  /** The floor of the zap swap. */
+  minOut?: MinOut;
+  /** The floor of the follow-up into the deposit mint, for a pool without it. */
+  followUpMinOut?: MinOut;
+  /** Withdraw first and swap the returned non-deposit token after, in a transaction of its own, under `minOut`. */
+  separateSwap?: boolean;
+}
+
 /** Optional sub-range of an existing position: both ends inclusive, given together or not at all. */
 export type InclusiveBinSelection = { lowerBinId: number; upperBinId: number } | { lowerBinId?: never; upperBinId?: never };
 
@@ -31,6 +51,8 @@ export type ActionRequest =
       destinationMint: string;
       amount: BaseUnitString;
       slippageBps: number;
+      /** The least `destinationMint` the swap may return, from the quote the caller approved. A fresh quote below it fails with `QuoteMoved`. */
+      minOutAmount?: BaseUnitString;
     }
   | {
       action: "dlmm/open";
@@ -54,8 +76,21 @@ export type ActionRequest =
       shape: DlmmShape;
       maxActiveBinSlippage: number;
     } & InclusiveBinSelection)
-  /** With a bin selection, removes `bpsToRemove` only from those bins. */
-  | ({ action: "dlmm/remove"; vault: string; position: string; bpsToRemove: number; cursorBinId?: number } & InclusiveBinSelection)
+  /**
+   * With a bin selection, removes `bpsToRemove` only from those bins. With `slippageBps` it zaps: the
+   * other pool token is swapped into `outputMint` (a pool token or the deposit mint, by default the
+   * deposit mint) in the same transaction.
+   */
+  | ({
+      action: "dlmm/remove";
+      vault: string;
+      position: string;
+      bpsToRemove: number;
+      cursorBinId?: number;
+      slippageBps?: number;
+      outputMint?: string;
+    } & ZapFloors &
+      InclusiveBinSelection)
   /**
    * In one atomic transaction, removes all liquidity from the bins and re-adds that token there as Bid-Ask.
    * The range (both ends inclusive) must lie entirely above the active bin (token X) or below it (token Y);
@@ -71,8 +106,8 @@ export type ActionRequest =
       maxActiveBinSlippage: number;
     }
   | { action: "dlmm/claim-fee"; vault: string; position: string; cursorBinId?: number }
-  /** `outputMint` picks which pool token to end in. It defaults to the deposit mint. */
-  | { action: "dlmm/zap-out"; vault: string; position: string; slippageBps: number; cursorBinId?: number; outputMint?: string }
+  /** `outputMint` picks a pool token or the deposit mint to end in. It defaults to the deposit mint. */
+  | ({ action: "dlmm/zap-out"; vault: string; position: string; slippageBps: number; cursorBinId?: number; outputMint?: string } & ZapFloors)
   | { action: "strategy/close"; vault: string; strategy: string }
   /** Creates a DLMM position with no liquidity, plus any missing pair-token Jupiter strategies. */
   | {
@@ -171,6 +206,8 @@ export type ActionRequest =
       minDeposit: BaseUnitString;
       /** Share base units. */
       minWithdrawalShares: BaseUnitString;
+      /** Deposits and withdrawals settle only after the manager approves each one. */
+      approvalRequired?: boolean;
     }
   /** Changes only the fields given; at least one is required. Units as in `vault/initialize`. */
   | {
@@ -184,6 +221,7 @@ export type ActionRequest =
       status?: VaultStatus;
       depositPaused?: boolean;
       withdrawalPaused?: boolean;
+      approvalRequired?: boolean;
     }
   /** Mints the manager's accrued fee shares to the manager. */
   | { action: "vault/claim-fee"; vault: string }
@@ -209,14 +247,17 @@ export interface ZapSource {
   mint: string;
   balanceBefore: BaseUnitString;
   closeWhenEmpty?: boolean;
+  minOut?: MinOut;
+  /** The mint to swap into. Defaults to the vault deposit mint. */
+  outputMint?: string;
 }
 
 /** Builders that only ever run as a step's `next`: `execute` follows them; callers never start one. */
 export type ContinuationRequest =
   | ({ action: "dlmm/extend" } & DlmmWideStep)
   | ({ action: "dlmm/add-range"; cursorBinId: number } & DlmmWideStep)
-  /** Swaps what the zap returned of each source into the deposit mint, one source per build. */
-  | { action: "dlmm/zap-out/swap"; vault: string; sources: ZapSource[]; slippageBps: number };
+  /** Swaps what the zap returned of each source into its output mint, one source per build; then sweeps `sweepAfter`. */
+  | { action: "dlmm/zap-out/swap"; vault: string; sources: ZapSource[]; slippageBps: number; sweepAfter?: string };
 
 export interface BuildRequest {
   /** A builder name, or a `next.path` returned by a previous build. */

@@ -22,7 +22,7 @@ export interface BuildContext {
   jupiter: JupiterConfig;
   /** Phoenix's perp-api: market list and trader onboarding. */
   phoenixApiUrl: string;
-  /** The protocol address lookup table that shrinks DLMM exit transactions; none when unset. */
+  /** The protocol address lookup table that shrinks swap transactions; none when unset. */
   protocolLookupTable?: PublicKey;
 }
 
@@ -100,19 +100,29 @@ export const DELEGATE_METEORA_DLMM = 2;
 export const DELEGATE_PHOENIX = 4;
 const PERMISSION_LABELS: Record<number, string> = { 1: "Jupiter", 2: "Meteora DLMM", 4: "Phoenix" };
 
-/** The authority, or a wallet with an unexpired Delegate of this vault (1 RPC). */
+/**
+ * The authority, or a wallet with an unexpired Delegate of this vault or, for a child vault, of its parent:
+ * the first live one, own vault first (1-2 RPC).
+ */
 export async function assertOperator(env: BuildEnv, vault: VaultCtx, payer: PublicKey): Promise<Operator> {
   if (vault.account.authority.equals(payer)) return null;
   // The program only creates a Delegate at this PDA, so finding it there proves its vault and wallet.
-  const address = getDelegatePda(vault.key, payer, env.programId);
-  const info = await env.connection.getAccountInfo(address);
-  if (!info || !info.owner.equals(env.programId))
-    throw new ApiError(403, "Forbidden", "Connected wallet is not the vault authority or one of its delegates");
-  const delegate = env.program.coder.accounts.decode<IdlAccounts<HedgeVault>["delegate"]>("delegate", info.data);
-  const expiresAt = delegate.expiresAt.toNumber();
-  if (expiresAt !== 0 && env.now() / 1000 >= expiresAt)
-    throw new ApiError(403, "DelegateExpired", "This wallet's delegate access to the vault has expired");
-  return { delegate: address, permissions: delegate.permissions.toNumber() };
+  const candidates = [getDelegatePda(vault.key, payer, env.programId)];
+  if (!vault.account.parent.equals(PublicKey.default)) candidates.push(getDelegatePda(vault.account.parent, payer, env.programId));
+  let expired = false;
+  for (const address of candidates) {
+    const info = await env.connection.getAccountInfo(address);
+    if (!info || !info.owner.equals(env.programId)) continue;
+    const delegate = env.program.coder.accounts.decode<IdlAccounts<HedgeVault>["delegate"]>("delegate", info.data);
+    const expiresAt = delegate.expiresAt.toNumber();
+    if (expiresAt !== 0 && env.now() / 1000 >= expiresAt) {
+      expired = true;
+      continue;
+    }
+    return { delegate: address, permissions: delegate.permissions.toNumber() };
+  }
+  if (expired) throw new ApiError(403, "DelegateExpired", "This wallet's delegate access to the vault has expired");
+  throw new ApiError(403, "Forbidden", "Connected wallet is not the vault authority or one of its delegates");
 }
 
 /** The optional `delegate` account of an instruction gated by `permission`: none for the authority. */

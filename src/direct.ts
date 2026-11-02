@@ -114,8 +114,8 @@ export interface DirectClientOptions {
   /** Refuse transactions whose priority fee exceeds this. */
   maxComputeUnitPriceMicroLamports?: bigint;
   /**
-   * The protocol address lookup table, as the app's `PROTOCOL_LOOKUP_TABLE`. DLMM withdrawals with a
-   * zap and `dlmm/zap-out` use it to fit their swap; without it they still build, only larger.
+   * The protocol address lookup table, as the app's `PROTOCOL_LOOKUP_TABLE`. Every Jupiter swap, zaps
+   * included, uses it to fit its route; without it they still build, only larger.
    */
   protocolLookupTable?: string;
 }
@@ -126,7 +126,7 @@ export interface DirectClientOptions {
  * A build throws `ApiError` for a bad request or a failed simulation; `send` reports its result as an `Outcome`.
  */
 export interface DirectHedgeClient extends BuildMethods {
-  /** Every vault of the program, sorted by id. Names are the on-chain names. */
+  /** Every vault of the program except child vaults, sorted by id. Names are the on-chain names. */
   listVaults(): Promise<VaultSummary[]>;
   getVault(vault: string): Promise<VaultDetail>;
   getRequests(vault: string): Promise<RequestQueue>;

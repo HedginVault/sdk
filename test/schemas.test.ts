@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { NavHistoryPointSchema, PhoenixManagerSchema, RequestQueueSchema, StrategyHistoryItemSchema, StrategyListSchema, StrategySchema, VaultDetailSchema } from "../src/schemas";
+import {
+  NavHistoryPointSchema,
+  PhoenixManagerSchema,
+  RequestQueueSchema,
+  StrategyHistoryItemSchema,
+  StrategyListSchema,
+  StrategySchema,
+  VaultDetailSchema,
+  VaultsResponseSchema,
+} from "../src/schemas";
 import { navHistory, phoenixView, requestQueue, strategies, strategyHistory, vaultDetail } from "./fixtures";
 
 const viaJson = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
@@ -27,6 +36,26 @@ describe("read schemas", () => {
       unmanagedHoldings: [{ token: { mint: "SOL", symbol: "SOL", decimals: 9 }, amount: "0.5" }],
     }).success).toBe(false);
     expect(VaultDetailSchema.safeParse({ ...fromApp, unmanagedHoldings: null }).success).toBe(false);
+  });
+
+  it("parses the current vault list with child vaults and keeps parent, childCount and approvalRequired", () => {
+    const summary = (address: string, parent: string | null, childCount: number) => ({
+      address, name: "Alpha", status: "normal", depositMint: "USDC", depositSymbol: "USDC", depositDecimals: 6, totalAssets: "2500000000",
+      approvalRequired: true, parent, childCount,
+    });
+    const fromApp = {
+      vaults: [{ ...summary("P", null, 1), chainName: "Alpha", showTradeHistory: true, pendingWithdrawalShares: "0" }],
+      children: [summary("C", "P", 0)],
+    };
+    expect(VaultsResponseSchema.parse(viaJson(fromApp))).toEqual({ vaults: [summary("P", null, 1)], children: [summary("C", "P", 0)] });
+    expect(VaultsResponseSchema.parse({ vaults: [] })).toEqual({ vaults: [] });
+    expect(VaultDetailSchema.parse(viaJson({ ...vaultDetail, shareSymbol: "hALPHA", parent: null, childCount: 0 }))).toMatchObject({ shareSymbol: "hALPHA" });
+  });
+
+  it("parses a request awaiting the manager's approval", () => {
+    const awaiting = { ...requestQueue, deposits: requestQueue.deposits.map((d) => ({ ...d, cancellable: true, awaitingApproval: true })) };
+    expect(RequestQueueSchema.parse(viaJson(awaiting))).toEqual(awaiting);
+    expect(RequestQueueSchema.safeParse({ ...awaiting, deposits: awaiting.deposits.map((d) => ({ ...d, awaitingApproval: "yes" })) }).success).toBe(false);
   });
 
   it("parses NAV history with a null timestamp and rejects a decimal NAV", () => {

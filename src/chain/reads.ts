@@ -10,14 +10,16 @@ import {
   type DepositRequestAccount,
   type VaultAccount,
   type WithdrawalRequestAccount,
+  decodeMetadataSymbol,
   decodeMint,
   decodeTokenAmount,
+  isChildAccount,
   toRequestQueue,
   toVaultDetail,
   toVaultSummary,
   tokenInfo,
 } from "./decode";
-import { getAssociatedTokenAddress, getConfigPda, getShareMintPda } from "./pda";
+import { getAssociatedTokenAddress, getConfigPda, getMetadataPda, getShareMintPda } from "./pda";
 
 /** RPC cap for getMultipleAccountsInfo, and Jupiter's /tokens/v2/search cap. */
 const MAX_PER_CALL = 100;
@@ -69,19 +71,21 @@ export async function jupiterSymbols(ctx: Ctx, mints: string[]): Promise<Map<str
   return out;
 }
 
-/** Decimals from each mint account, owning token program, and symbol from Jupiter. */
-async function readTokens(ctx: Ctx, mints: PublicKey[]): Promise<Map<string, { token: TokenInfo; tokenProgram: PublicKey }>> {
+type ReadToken = { token: TokenInfo; tokenProgram: PublicKey };
+
+/** Decimals from each mint account, owning token program, and symbol from Jupiter. A missing mint is absent unless `required`. */
+async function readTokens(ctx: Ctx, mints: PublicKey[], required = true): Promise<Map<string, ReadToken>> {
   const unique = [...new Map(mints.map((m) => [m.toBase58(), m])).values()];
   const keys = unique.map((m) => m.toBase58());
   const [infos, symbols] = await Promise.all([getAccounts(ctx, unique), jupiterSymbols(ctx, keys)]);
-  return new Map(
-    keys.map((key, i) => {
-      const info = infos[i];
-      const mint = info ? decodeMint(info.data) : null;
-      if (!info || !mint) throw new ApiError(404, "NotFound", `Mint ${key} not found`);
-      return [key, { token: tokenInfo(key, mint.decimals, symbols.get(key)), tokenProgram: info.owner }];
-    }),
-  );
+  const out = new Map<string, ReadToken>();
+  keys.forEach((key, i) => {
+    const info = infos[i];
+    const mint = info ? decodeMint(info.data) : null;
+    if (info && mint) out.set(key, { token: tokenInfo(key, mint.decimals, symbols.get(key)), tokenProgram: info.owner });
+    else if (required) throw new ApiError(404, "NotFound", `Mint ${key} not found`);
+  });
+  return out;
 }
 
 function parseAddress(address: string): PublicKey {
@@ -110,23 +114,28 @@ const programAccounts = (ctx: Ctx, name: "vault" | "depositRequest" | "withdrawa
     filters: [{ memcmp: discriminatorFilter(ctx, name) }, ...(vault ? [{ memcmp: { offset: REQUEST_VAULT_OFFSET, bytes: vault.toBase58() } }] : [])],
   });
 
-/** 1 getProgramAccounts, then one batched mint read and Jupiter lookup for all deposit mints. Every vault, sorted by id. */
+/**
+ * 1 getProgramAccounts, then one batched mint read and Jupiter lookup for all deposit mints. Every vault that takes
+ * deposits, sorted by id; child vaults are left out, as the app's list does. A vault whose Token-2022 deposit mint was
+ * closed at zero supply is left out rather than failing the list.
+ */
 export async function readVaults(ctx: Ctx): Promise<VaultSummary[]> {
-  const all = (await programAccounts(ctx, "vault")).map(({ pubkey, account }) => ({
-    address: pubkey.toBase58(),
-    account: ctx.coder.decode<VaultAccount>("vault", account.data),
-  }));
-  const tokens = await readTokens(ctx, all.map((v) => v.account.depositMint));
+  const all = (await programAccounts(ctx, "vault"))
+    .map(({ pubkey, account }) => ({ address: pubkey.toBase58(), account: ctx.coder.decode<VaultAccount>("vault", account.data) }))
+    .filter((v) => !isChildAccount(v.account));
+  const tokens = await readTokens(ctx, all.map((v) => v.account.depositMint), false);
   return all
     .sort((a, b) => a.account.id.cmp(b.account.id))
-    .map(({ address, account }) => {
+    .flatMap(({ address, account }) => {
       const token = tokens.get(account.depositMint.toBase58());
-      if (!token) throw new Error(`Deposit mint ${account.depositMint.toBase58()} was not read`);
-      return toVaultSummary(address, account, token.token);
+      return token ? [toVaultSummary(address, account, token.token)] : [];
     });
 }
 
-/** 3 RPC: the vault and config, then the deposit and share mints, then the vault's idle token account. */
+/**
+ * 3 RPC: the vault and config, then the deposit mint with the share mint and its metadata, then the vault's idle token
+ * account. A child vault has no share mint, so its supply reads as 0.
+ */
 export async function readVaultDetail(ctx: Ctx, address: string): Promise<VaultDetail> {
   const key = parseAddress(address);
   const [vaultInfo, configInfo] = await getAccounts(ctx, [key, getConfigPda(ctx.programId)]);
@@ -134,16 +143,21 @@ export async function readVaultDetail(ctx: Ctx, address: string): Promise<VaultD
   if (!configInfo) throw new Error("Protocol config account is missing");
   const config = ctx.coder.decode<ConfigAccount>("config", configInfo.data);
   const shareMint = getShareMintPda(key, ctx.programId);
-  const [tokens, [shareMintInfo]] = await Promise.all([readTokens(ctx, [vault.depositMint]), getAccounts(ctx, [shareMint])]);
+  const [tokens, [shareMintInfo, metadataInfo]] = await Promise.all([
+    readTokens(ctx, [vault.depositMint]),
+    getAccounts(ctx, [shareMint, getMetadataPda(shareMint)]),
+  ]);
   const deposit = tokens.get(vault.depositMint.toBase58());
   const share = shareMintInfo ? decodeMint(shareMintInfo.data) : null;
+  const metadata = metadataInfo ? decodeMetadataSymbol(metadataInfo.data) : null;
   if (!deposit) throw new Error("Deposit mint was not read");
-  if (!share) throw new Error("Share mint account is missing");
+  if (!share && !isChildAccount(vault)) throw new Error("Share mint account is missing");
   const idleAccount = getAssociatedTokenAddress(key, vault.depositMint, deposit.tokenProgram);
   const [idleInfo] = await getAccounts(ctx, [idleAccount]);
   return toVaultDetail(address, vault, deposit.token, config, {
     shareMint: shareMint.toBase58(),
-    shareSupply: share.supply,
+    shareSupply: share?.supply ?? 0n,
+    shareSymbol: metadata && metadata.mint === shareMint.toBase58() && metadata.symbol ? metadata.symbol : null,
     idleBalance: decodeTokenAmount(idleInfo?.data),
   });
 }

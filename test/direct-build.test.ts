@@ -57,6 +57,7 @@ const cases: { request: DirectActionRequest; name: string; args: unknown; accoun
         status: { reduceOnly: {} },
         depositPaused: null,
         withdrawalPaused: false,
+        approvalRequired: null,
       },
     },
     accounts: { authority: M, vault: V },
@@ -139,6 +140,26 @@ describe.each(cases)("direct execute $request.action", ({ request, name, args, a
       landedLogs: [`Program ${P} invoke [1]`, `Program ${P} failed: custom program error: 0x1791`],
     });
     expect(outcome).toMatchObject({ kind: "failed", code: "VaultHasUnclaimedFees", message: "Fees are still unclaimed. Claim them before closing the vault." });
+  });
+});
+
+describe("direct vault/initialize approvalRequired", () => {
+  it("makes the new vault private in the same transaction", async () => {
+    const request: DirectActionRequest = {
+      action: "vault/initialize", name: "Beta", depositMint: USDC.toBase58(), performanceFeeBps: 2000, managementFeeBps: 200,
+      depositCap: "1000000000", minDeposit: "1000000", minWithdrawalShares: "500000", approvalRequired: true,
+    };
+    const { outcome, txs } = await run(request);
+    expect(outcome).toMatchObject({ kind: "confirmed", created: { vault: NEXT_VAULT.toBase58() } });
+    const [tx] = txs;
+    expect(tx?.hedge.map((h) => h.name)).toEqual(["vaultInitialize", "vaultUpdate"]);
+    expect(tx?.hedge[1]?.args).toEqual({
+      args: {
+        performanceFeeBps: null, managementFeeBps: null, depositCap: null, minDeposit: null, minWithdrawalShares: null,
+        status: null, depositPaused: null, withdrawalPaused: null, approvalRequired: true,
+      },
+    });
+    expect(tx?.hedge[1]?.accounts).toMatchObject({ authority: M, vault: NEXT_VAULT.toBase58() });
   });
 });
 

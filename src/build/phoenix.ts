@@ -169,12 +169,20 @@ const sideArg = (side: "long" | "short") => (side === "long" ? { bid: {} as Empt
 
 type OrderBody = z.infer<typeof phoenixOrderInput>;
 
+function lotsOr400(convert: () => bigint | number | string, message: string): bigint {
+  try {
+    return BigInt(convert());
+  } catch {
+    throw new ApiError(400, "Validation", message);
+  }
+}
+
 /**
  * Program order parameters for a ticket; pure. Sizes floor to lots and prices to ticks. A market order is
  * capped at the mark ± `slippageBps`, rounded against the trader, and must fill in full.
  */
 export function toOrderParams(rise: Rise, o: OrderBody, market: PhoenixMarket, markTicks: bigint, clientOrderId: bigint) {
-  const numBaseLots = BigInt(rise.baseUnitsToBaseLotsWithMarketParams(o.size, market));
+  const numBaseLots = lotsOr400(() => rise.baseUnitsToBaseLotsWithMarketParams(o.size, market), "size: too large for this market");
   if (numBaseLots <= 0n) throw new ApiError(400, "Validation", "size: below one base lot");
   const shared = {
     side: sideArg(o.side),
@@ -186,7 +194,8 @@ export function toOrderParams(rise: Rise, o: OrderBody, market: PhoenixMarket, m
     cancelExisting: false,
   };
   if (o.order.type === "limit") {
-    const priceInTicks = BigInt(rise.priceUsdToTicksWithMarketParams(o.order.price, market));
+    const price = o.order.price;
+    const priceInTicks = lotsOr400(() => rise.priceUsdToTicksWithMarketParams(price, market), "price: too large for this market");
     if (priceInTicks <= 0n) throw new ApiError(400, "Validation", "price: below one tick");
     return {
       kind: "limit" as const,

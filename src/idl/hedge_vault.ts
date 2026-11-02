@@ -51,7 +51,7 @@ export type HedgeVault = {
       ],
       "accounts": [
         {
-          "name": "admin",
+          "name": "guardian",
           "writable": true,
           "signer": true
         },
@@ -231,6 +231,90 @@ export type HedgeVault = {
           }
         },
         {
+          "name": "programData",
+          "docs": [
+            "Only the program's upgrade authority may initialize, so nobody can front-run a fresh deploy."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  12,
+                  143,
+                  63,
+                  71,
+                  126,
+                  84,
+                  248,
+                  246,
+                  46,
+                  48,
+                  163,
+                  36,
+                  107,
+                  1,
+                  48,
+                  71,
+                  249,
+                  185,
+                  50,
+                  160,
+                  90,
+                  250,
+                  218,
+                  94,
+                  145,
+                  89,
+                  151,
+                  254,
+                  214,
+                  0,
+                  45,
+                  5
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                2,
+                168,
+                246,
+                145,
+                78,
+                136,
+                161,
+                176,
+                226,
+                16,
+                21,
+                62,
+                247,
+                99,
+                174,
+                43,
+                0,
+                194,
+                185,
+                61,
+                22,
+                193,
+                36,
+                210,
+                192,
+                83,
+                122,
+                16,
+                4,
+                128,
+                0,
+                0
+              ]
+            }
+          }
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
@@ -376,6 +460,41 @@ export type HedgeVault = {
               "name": "configUpdateArgs"
             }
           }
+        }
+      ]
+    },
+    {
+      "name": "depositRequestApprove",
+      "discriminator": [
+        234,
+        240,
+        215,
+        72,
+        84,
+        176,
+        78,
+        41
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "depositor"
+        },
+        {
+          "name": "depositRequest",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
         }
       ]
     },
@@ -698,7 +817,7 @@ export type HedgeVault = {
       ],
       "accounts": [
         {
-          "name": "admin",
+          "name": "rejecter",
           "writable": true,
           "signer": true
         },
@@ -966,6 +1085,437 @@ export type HedgeVault = {
       "args": []
     },
     {
+      "name": "escrowClose",
+      "discriminator": [
+        235,
+        96,
+        55,
+        230,
+        145,
+        229,
+        209,
+        206
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "parent",
+          "writable": true
+        },
+        {
+          "name": "child",
+          "writable": true
+        },
+        {
+          "name": "depositMint"
+        },
+        {
+          "name": "childTokenAccount",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "child"
+              },
+              {
+                "kind": "account",
+                "path": "depositMintTokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "depositMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "usdcTokenAccount",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "depositMintTokenProgram"
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "escrowCreate",
+      "discriminator": [
+        228,
+        151,
+        91,
+        197,
+        161,
+        255,
+        60,
+        247
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true
+        },
+        {
+          "name": "parent",
+          "writable": true
+        },
+        {
+          "name": "child",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config"
+              }
+            ]
+          }
+        },
+        {
+          "name": "depositMint"
+        },
+        {
+          "name": "childTokenAccount",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "child"
+              },
+              {
+                "kind": "account",
+                "path": "depositMintTokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "depositMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "depositMintTokenProgram"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "escrowCreateArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "escrowTransfer",
+      "discriminator": [
+        72,
+        48,
+        237,
+        237,
+        173,
+        74,
+        46,
+        254
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "parent"
+        },
+        {
+          "name": "source",
+          "docs": [
+            "The parent or one of its escrows."
+          ]
+        },
+        {
+          "name": "destination",
+          "docs": [
+            "The parent or one of its escrows."
+          ]
+        },
+        {
+          "name": "mint",
+          "docs": [
+            "The deposit mint, or any mint both ends track with a Jupiter strategy."
+          ]
+        },
+        {
+          "name": "sourceTokenAccount",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "source"
+              },
+              {
+                "kind": "account",
+                "path": "tokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "destinationTokenAccount",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "destination"
+              },
+              {
+                "kind": "account",
+                "path": "tokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "sourceStrategy",
+          "docs": [
+            "The source's Jupiter strategy for `mint`, required unless `mint` is the deposit mint."
+          ],
+          "optional": true
+        },
+        {
+          "name": "destinationStrategy",
+          "docs": [
+            "The destination's Jupiter strategy for `mint`, required unless `mint` is the deposit mint."
+          ],
+          "optional": true
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "tokenProgram"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "delegate",
+          "docs": [
+            "Required when `authority` is a delegate of the parent rather than its authority."
+          ],
+          "optional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "jupiterInitializeStrategy",
       "discriminator": [
         29,
@@ -1035,209 +1585,6 @@ export type HedgeVault = {
         }
       ],
       "args": []
-    },
-    {
-      "name": "jupiterSwap",
-      "discriminator": [
-        116,
-        207,
-        0,
-        196,
-        252,
-        120,
-        243,
-        18
-      ],
-      "accounts": [
-        {
-          "name": "authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "config"
-        },
-        {
-          "name": "vault"
-        },
-        {
-          "name": "strategy",
-          "writable": true
-        },
-        {
-          "name": "sourceStrategy",
-          "docs": [
-            "Jupiter strategy tracking the source mint, required when neither mint is the deposit mint."
-          ],
-          "optional": true
-        },
-        {
-          "name": "sourceMint"
-        },
-        {
-          "name": "destinationMint"
-        },
-        {
-          "name": "vaultSourceTokenAccount",
-          "docs": [
-            "Pinned to the vault's ATA so the deposit and share escrows can never be the source."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "vault"
-              },
-              {
-                "kind": "account",
-                "path": "sourceTokenProgram"
-              },
-              {
-                "kind": "account",
-                "path": "sourceMint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
-          }
-        },
-        {
-          "name": "vaultDestinationTokenAccount",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "vault"
-              },
-              {
-                "kind": "account",
-                "path": "destinationTokenProgram"
-              },
-              {
-                "kind": "account",
-                "path": "destinationMint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
-          }
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        },
-        {
-          "name": "sourceTokenProgram"
-        },
-        {
-          "name": "destinationTokenProgram"
-        },
-        {
-          "name": "associatedTokenProgram",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
-        },
-        {
-          "name": "eventAuthority",
-          "address": "D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf"
-        },
-        {
-          "name": "jupiterProgram",
-          "address": "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
-        },
-        {
-          "name": "delegate",
-          "docs": [
-            "Required when `authority` is a delegate rather than the vault authority."
-          ],
-          "optional": true
-        }
-      ],
-      "args": [
-        {
-          "name": "swapData",
-          "type": "bytes"
-        },
-        {
-          "name": "amount",
-          "type": "u64"
-        },
-        {
-          "name": "slippageBps",
-          "type": "u16"
-        }
-      ]
     },
     {
       "name": "jupiterSwapViaAuthority",
@@ -4753,6 +5100,195 @@ export type HedgeVault = {
       ]
     },
     {
+      "name": "swapAuthoritySweep",
+      "discriminator": [
+        24,
+        72,
+        26,
+        162,
+        8,
+        162,
+        28,
+        75
+      ],
+      "accounts": [
+        {
+          "name": "sweeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "rentReceiver",
+          "writable": true
+        },
+        {
+          "name": "swapAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  119,
+                  97,
+                  112,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "swapAuthorityTokenAccount",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "swapAuthority"
+              },
+              {
+                "kind": "account",
+                "path": "tokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "vaultTokenAccount",
+          "docs": [
+            "Opened for an intermediate mint the vault has never held."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "tokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "tokenProgram"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "vaultAddDelegate",
       "discriminator": [
         79,
@@ -5123,6 +5659,89 @@ export type HedgeVault = {
       "args": []
     },
     {
+      "name": "vaultCreateShareMetadata",
+      "discriminator": [
+        227,
+        101,
+        28,
+        150,
+        74,
+        245,
+        79,
+        177
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "shareMint"
+        },
+        {
+          "name": "metadata",
+          "writable": true
+        },
+        {
+          "name": "metadataProgram",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "vaultShareMetadataArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "vaultForgivenessUpdate",
+      "discriminator": [
+        139,
+        4,
+        231,
+        104,
+        187,
+        170,
+        240,
+        27
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "forgivenessBps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
       "name": "vaultInitialize",
       "discriminator": [
         164,
@@ -5475,6 +6094,84 @@ export type HedgeVault = {
       ]
     },
     {
+      "name": "vaultUpdateShareMetadata",
+      "discriminator": [
+        141,
+        37,
+        58,
+        190,
+        67,
+        111,
+        4,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "metadata",
+          "writable": true
+        },
+        {
+          "name": "metadataProgram",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "vaultShareMetadataArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "withdrawalRequestApprove",
+      "discriminator": [
+        87,
+        160,
+        33,
+        175,
+        212,
+        105,
+        61,
+        23
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "withdrawer"
+        },
+        {
+          "name": "withdrawalRequest",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "shares",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "withdrawalRequestCancel",
       "discriminator": [
         237,
@@ -5797,7 +6494,7 @@ export type HedgeVault = {
       ],
       "accounts": [
         {
-          "name": "admin",
+          "name": "rejecter",
           "writable": true,
           "signer": true
         },
@@ -6314,6 +7011,19 @@ export type HedgeVault = {
       ]
     },
     {
+      "name": "depositApproved",
+      "discriminator": [
+        229,
+        217,
+        230,
+        247,
+        42,
+        220,
+        160,
+        243
+      ]
+    },
+    {
       "name": "depositCancelled",
       "discriminator": [
         233,
@@ -6363,6 +7073,71 @@ export type HedgeVault = {
         136,
         113,
         227
+      ]
+    },
+    {
+      "name": "escrowClosed",
+      "discriminator": [
+        109,
+        20,
+        57,
+        51,
+        217,
+        118,
+        3,
+        173
+      ]
+    },
+    {
+      "name": "escrowCreated",
+      "discriminator": [
+        70,
+        127,
+        105,
+        102,
+        92,
+        97,
+        7,
+        173
+      ]
+    },
+    {
+      "name": "escrowDefunded",
+      "discriminator": [
+        251,
+        203,
+        186,
+        83,
+        156,
+        63,
+        143,
+        233
+      ]
+    },
+    {
+      "name": "escrowFunded",
+      "discriminator": [
+        228,
+        243,
+        166,
+        74,
+        22,
+        167,
+        157,
+        244
+      ]
+    },
+    {
+      "name": "escrowTransferred",
+      "discriminator": [
+        156,
+        171,
+        65,
+        74,
+        45,
+        174,
+        31,
+        130
       ]
     },
     {
@@ -6613,6 +7388,32 @@ export type HedgeVault = {
       ]
     },
     {
+      "name": "shareMetadataCreated",
+      "discriminator": [
+        116,
+        182,
+        188,
+        71,
+        238,
+        139,
+        8,
+        194
+      ]
+    },
+    {
+      "name": "shareMetadataUpdated",
+      "discriminator": [
+        108,
+        76,
+        245,
+        49,
+        8,
+        102,
+        210,
+        141
+      ]
+    },
+    {
       "name": "strategyClosed",
       "discriminator": [
         168,
@@ -6639,6 +7440,19 @@ export type HedgeVault = {
       ]
     },
     {
+      "name": "swapAuthoritySwept",
+      "discriminator": [
+        216,
+        39,
+        38,
+        135,
+        213,
+        237,
+        158,
+        1
+      ]
+    },
+    {
       "name": "vaultClosed",
       "discriminator": [
         238,
@@ -6649,6 +7463,19 @@ export type HedgeVault = {
         118,
         249,
         215
+      ]
+    },
+    {
+      "name": "vaultForgivenessUpdated",
+      "discriminator": [
+        121,
+        173,
+        248,
+        34,
+        13,
+        249,
+        163,
+        56
       ]
     },
     {
@@ -6688,6 +7515,19 @@ export type HedgeVault = {
         201,
         3,
         105
+      ]
+    },
+    {
+      "name": "withdrawalApproved",
+      "discriminator": [
+        118,
+        139,
+        166,
+        230,
+        81,
+        241,
+        215,
+        154
       ]
     },
     {
@@ -7072,7 +7912,7 @@ export type HedgeVault = {
     {
       "code": 6065,
       "name": "invalidPhoenixDepositMint",
-      "msg": "Phoenix strategies require a USDC deposit mint"
+      "msg": "Phoenix strategies refuse the Phoenix canonical token as deposit mint"
     },
     {
       "code": 6066,
@@ -7188,6 +8028,61 @@ export type HedgeVault = {
       "code": 6088,
       "name": "vaultHasDelegates",
       "msg": "Vault still has delegates, remove them first"
+    },
+    {
+      "code": 6089,
+      "name": "invalidRejecter",
+      "msg": "Signer is neither the config admin nor the vault authority"
+    },
+    {
+      "code": 6090,
+      "name": "requestNotApproved",
+      "msg": "Request needs the vault manager's approval before it can resolve"
+    },
+    {
+      "code": 6091,
+      "name": "approvedAmountMismatch",
+      "msg": "Request amount changed since it was reviewed"
+    },
+    {
+      "code": 6092,
+      "name": "vaultIsChild",
+      "msg": "Instruction is not available on an escrow"
+    },
+    {
+      "code": 6093,
+      "name": "vaultHasChildren",
+      "msg": "Vault still has escrows, close them first"
+    },
+    {
+      "code": 6094,
+      "name": "invalidParentVault",
+      "msg": "Escrow does not belong to this vault"
+    },
+    {
+      "code": 6095,
+      "name": "maxChildVaultsReached",
+      "msg": "Vault already has the maximum number of escrows"
+    },
+    {
+      "code": 6096,
+      "name": "childVaultNotEmpty",
+      "msg": "Escrow still holds tokens, transfer or swap them first"
+    },
+    {
+      "code": 6097,
+      "name": "usdcTokenAccountRequired",
+      "msg": "Escrow USDC token account is required when the deposit mint is not USDC"
+    },
+    {
+      "code": 6098,
+      "name": "swapAuthorityAccountEmpty",
+      "msg": "Swap authority account holds nothing to sweep"
+    },
+    {
+      "code": 6099,
+      "name": "escrowTransferToSelf",
+      "msg": "Transfer source and destination must be different vaults"
     }
   ],
   "types": [
@@ -7277,7 +8172,7 @@ export type HedgeVault = {
           {
             "name": "admin",
             "docs": [
-              "Authority allowed to update config parameters and manage the manager whitelist."
+              "Authority allowed to update config parameters and remove managers from the whitelist."
             ],
             "type": "pubkey"
           },
@@ -7298,7 +8193,7 @@ export type HedgeVault = {
           {
             "name": "guardian",
             "docs": [
-              "Authority allowed to pause the protocol, and nothing else."
+              "Authority allowed to pause the protocol and add managers to the whitelist, and nothing else."
             ],
             "type": "pubkey"
           },
@@ -7733,6 +8628,26 @@ export type HedgeVault = {
       }
     },
     {
+      "name": "depositApproved",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "depositCancelled",
       "type": {
         "kind": "struct",
@@ -7828,6 +8743,13 @@ export type HedgeVault = {
             "type": "u64"
           },
           {
+            "name": "approved",
+            "docs": [
+              "Nonzero once the vault authority approved this request at its current amount."
+            ],
+            "type": "u8"
+          },
+          {
             "name": "reserved",
             "docs": [
               "Reserved for future fields."
@@ -7835,7 +8757,7 @@ export type HedgeVault = {
             "type": {
               "array": [
                 "u8",
-                24
+                23
               ]
             }
           }
@@ -7893,6 +8815,153 @@ export type HedgeVault = {
           },
           {
             "name": "navPerShare",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "escrowClosed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "parent",
+            "type": "pubkey"
+          },
+          {
+            "name": "child",
+            "type": "pubkey"
+          },
+          {
+            "name": "id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "escrowCreateArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "name",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "escrowCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "parent",
+            "type": "pubkey"
+          },
+          {
+            "name": "child",
+            "type": "pubkey"
+          },
+          {
+            "name": "id",
+            "type": "u64"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "depositMint",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "escrowDefunded",
+      "docs": [
+        "Emitted by the retired `escrow_defund`, kept so past logs still decode."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "parent",
+            "type": "pubkey"
+          },
+          {
+            "name": "child",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "escrowFunded",
+      "docs": [
+        "Emitted by the retired `escrow_fund`, kept so past logs still decode."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "parent",
+            "type": "pubkey"
+          },
+          {
+            "name": "child",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "escrowTransferred",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "parent",
+            "type": "pubkey"
+          },
+          {
+            "name": "source",
+            "type": "pubkey"
+          },
+          {
+            "name": "destination",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
             "type": "u64"
           }
         ]
@@ -9601,6 +10670,62 @@ export type HedgeVault = {
       }
     },
     {
+      "name": "shareMetadataCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "shareMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "symbol",
+            "type": "string"
+          },
+          {
+            "name": "uri",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "shareMetadataUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "shareMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "symbol",
+            "type": "string"
+          },
+          {
+            "name": "uri",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
       "name": "staticParameters",
       "docs": [
         "Parameter that set by the protocol"
@@ -9856,6 +10981,30 @@ export type HedgeVault = {
       }
     },
     {
+      "name": "swapAuthoritySwept",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "sweeper",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "userRewardInfo",
       "serialization": "bytemuck",
       "repr": {
@@ -9972,15 +11121,21 @@ export type HedgeVault = {
           {
             "name": "reservedKeys",
             "docs": [
-              "80..144, reserved for two future `Pubkey` fields (e.g. `pending_authority`, `delegate`).",
-              "Vault metadata beyond `name` lives off-chain."
+              "80..112, reserved for `pending_authority`. Vault metadata beyond `name` lives off-chain."
             ],
             "type": {
               "array": [
                 "u8",
-                64
+                32
               ]
             }
+          },
+          {
+            "name": "parent",
+            "docs": [
+              "Vault this escrow belongs to, zero on a vault that takes deposits. Set by `escrow_create`."
+            ],
+            "type": "pubkey"
           },
           {
             "name": "depositMint",
@@ -10133,23 +11288,37 @@ export type HedgeVault = {
             "type": "u8"
           },
           {
-            "name": "padding0",
-            "type": {
-              "array": [
-                "u8",
-                3
-              ]
-            }
+            "name": "approvalRequired",
+            "docs": [
+              "Nonzero makes every request wait for the vault authority's approval before it can resolve.",
+              "Set by the manager via `vault_update`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "forgivenessBps",
+            "docs": [
+              "Yearly rate at which [Vault::loss_carry] decays, in basis points. Zero keeps the carry",
+              "until it is earned back. Set by the config admin via `vault_forgiveness_update`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "childCount",
+            "docs": [
+              "Escrows open under this vault, must be zero before the vault can be closed."
+            ],
+            "type": "u8"
           },
           {
             "name": "reserved0",
             "docs": [
-              "312..320, reserved for `epoch_duration`."
+              "313..320, reserved."
             ],
             "type": {
               "array": [
                 "u8",
-                8
+                7
               ]
             }
           },
@@ -10227,14 +11396,23 @@ export type HedgeVault = {
             "type": "u32"
           },
           {
+            "name": "lossCarry",
+            "docs": [
+              "Unrecovered loss in deposit mint. Gains repay it before any performance fee is charged.",
+              "Grows on losses and on management fees, shrinks pro rata on withdrawal resolve and by",
+              "[Vault::forgiveness_bps] over time, untouched by deposits."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "reserved3",
             "docs": [
-              "392..424, reserved for `nav_update_count` and future fields."
+              "400..424, reserved for `nav_update_count` and future fields."
             ],
             "type": {
               "array": [
                 "u8",
-                32
+                24
               ]
             }
           }
@@ -10271,6 +11449,22 @@ export type HedgeVault = {
               "Unix timestamp from which the delegate stops working, zero means it never expires."
             ],
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "vaultForgivenessUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "forgivenessBps",
+            "type": "u16"
           }
         ]
       }
@@ -10357,6 +11551,29 @@ export type HedgeVault = {
       }
     },
     {
+      "name": "vaultShareMetadataArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "name",
+            "docs": [
+              "Metaplex caps these at 32, 10 and 200 bytes."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "symbol",
+            "type": "string"
+          },
+          {
+            "name": "uri",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
       "name": "vaultStatus",
       "repr": {
         "kind": "rust"
@@ -10432,6 +11649,12 @@ export type HedgeVault = {
             "type": {
               "option": "bool"
             }
+          },
+          {
+            "name": "approvalRequired",
+            "type": {
+              "option": "bool"
+            }
           }
         ]
       }
@@ -10492,6 +11715,30 @@ export type HedgeVault = {
           {
             "name": "withdrawalPaused",
             "type": "bool"
+          },
+          {
+            "name": "approvalRequired",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "withdrawalApproved",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
           }
         ]
       }
@@ -10592,6 +11839,13 @@ export type HedgeVault = {
             "type": "u64"
           },
           {
+            "name": "approved",
+            "docs": [
+              "Nonzero once the vault authority approved this request at its current amount."
+            ],
+            "type": "u8"
+          },
+          {
             "name": "reserved",
             "docs": [
               "Reserved for future fields."
@@ -10599,7 +11853,7 @@ export type HedgeVault = {
             "type": {
               "array": [
                 "u8",
-                24
+                23
               ]
             }
           }
@@ -10807,6 +12061,22 @@ export type HedgeVault = {
       "value": "10000"
     },
     {
+      "name": "maxChildVaults",
+      "docs": [
+        "Max escrows open under one vault, keeps every idle ATA inside the keeper's first snapshot chunk."
+      ],
+      "type": "u8",
+      "value": "16"
+    },
+    {
+      "name": "maxForgivenessBps",
+      "docs": [
+        "Max yearly decay of a vault's loss carry. At the cap a one-month-old loss is 8% forgiven."
+      ],
+      "type": "u16",
+      "value": "10000"
+    },
+    {
       "name": "maxManagementFeeBps",
       "docs": [
         "Max annualized manager fee on total assets."
@@ -10870,7 +12140,7 @@ export type HedgeVault = {
     {
       "name": "vaultVersion",
       "type": "u8",
-      "value": "1"
+      "value": "2"
     }
   ]
 };

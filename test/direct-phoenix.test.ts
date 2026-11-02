@@ -293,6 +293,22 @@ describe("direct phoenix/order", () => {
     expect(sent).toEqual([]);
   });
 
+  // The largest size and price the input accepts still overflow u64 lots or ticks on markets with these parameters.
+  it.each([
+    ["size", { tickSize: 100, baseLotsDecimals: 8 }, { ...marketOrder, size: "999999999999999" }, "size: too large for this market"],
+    [
+      "price",
+      { tickSize: 1, baseLotsDecimals: 0 },
+      { ...marketOrder, size: "1", order: { type: "limit", price: "999999999999999", postOnly: false } },
+      "price: too large for this market",
+    ],
+  ] as const)("rejects a %s too large for the market's lots as a validation error", async (_field, params, request, message) => {
+    const markets = () => json([{ ...market("SOL", 0, SOL_BOOK), ...params }]);
+    const { outcome, sent } = await run(request, {}, manager, await phoenixChain(), { fetch: fakePhoenix({ markets }).fetch });
+    expect(outcome).toEqual({ kind: "failed", signatures: [], code: "Validation", message });
+    expect(sent).toEqual([]);
+  });
+
   it("rejects TP/SL on a limit order before any read", async () => {
     const phoenix = fakePhoenix();
     const request: DirectActionRequest = { ...marketOrder, order: { type: "limit", price: "120", postOnly: false }, tpSl: { takeProfit: "130", stopLoss: null } };

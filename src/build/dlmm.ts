@@ -23,7 +23,8 @@ import {
   vaultAtaIxs,
 } from "./dlmm-ix";
 import { buildWideAddPlan, DLMM_MAX_EXIT_BINS_PER_TX, nextBinChunk, withoutRepeats } from "./dlmm-wide";
-import { zapRemove } from "./dlmm-zap";
+import { cappedSlippage, vaultTokenBalance, zapRemove, zapSwapNextStep } from "./dlmm-zap";
+import { minOutInput } from "./jupiter-route";
 import { excludingTransferFee, missingRangeBinArrayIxs, readPool, readPositionData } from "./meteora";
 import type { LocalStep } from "./registry";
 import { closeDlmmStrategyIx } from "./strategy";
@@ -71,6 +72,13 @@ export const dlmmRemoveInput = z.object({
   cursorBinId: binId.optional(),
   /** Set to zap: the removed non-deposit token is swapped into the deposit mint in the same transaction. */
   slippageBps: slippageBps.optional(),
+  /** With zap: a pool token or the deposit mint to end in. Defaults to the deposit mint. */
+  outputMint: pubkey.optional(),
+  /** With zap: the floor of the zap swap, and of the follow-up into the deposit mint for a pool without it. */
+  minOut: minOutInput.optional(),
+  followUpMinOut: minOutInput.optional(),
+  /** Withdraw first and swap the returned non-deposit token after, in a transaction of its own, under `minOut`. */
+  separateSwap: z.boolean().optional(),
   ...binSelection,
 });
 export const dlmmFlipInput = z.object({ vault: pubkey, position: pubkey, lowerBinId: binId, upperBinId: binId, activeBinId: binId, maxActiveBinSlippage });
@@ -177,9 +185,14 @@ export async function buildDlmmOpen(env: BuildEnv, b: z.infer<typeof dlmmOpenInp
   if (fitsInTransaction(env.payer, all)) return { ...(await assemble(env, all, [], { signers: [position] })), ...meta };
   return [
     { ...(await assemble(env, [...binArrays, ...setup, initIx], [], { signers: [position] })), ...meta },
-    await assemble(env, add, [], { deferSimulation: true }),
+    await assemble(env, add, [], { deferSimulation: true, computeUnits: CU_ADD_LIQUIDITY }),
   ];
 }
+
+// ponytail: fixed budget from mainnet samples (a 70-bin add ~290k CU), about 1.4x headroom, as the app's
+// `dlmm/open`. A deferred transaction asking the 1.4M ceiling on a hot pool's lb_pair rarely gets scheduled
+// before its blockhash expires. Measure per bin and shape if an add ever runs out of compute.
+const CU_ADD_LIQUIDITY = 400_000;
 
 interface WideAdd {
   amountX: string;
@@ -297,18 +310,65 @@ export async function buildDlmmRemove(env: BuildEnv, b: z.infer<typeof dlmmRemov
   const selection = selectedBins(b, p);
   // A position opened before pair strategies were enforced needs them before it can be unwound.
   const setup = await pairStrategySetupIxs(c, pairOf(p.pool));
-  if (b.slippageBps !== undefined) return zapRemove(c, p, b.bpsToRemove, selection ?? p, b.cursorBinId, b.slippageBps, setup);
-  if (b.cursorBinId === undefined && widthOf(p) <= DLMM_INITIAL_POSITION_WIDTH)
-    return assemble(env, [...setup, ...vaultAtaIxs(c, p.pool), await removeLiquidityIx(c, p, b.bpsToRemove, selection ?? undefined)]);
+  if (b.slippageBps === undefined) return plainRemove(c, p, b.bpsToRemove, selection, b.cursorBinId, setup);
+  const slippage = await cappedSlippage(env, b.slippageBps);
+  const { tokenX, tokenY } = p.pool;
+  const depositMint = c.vault.depositMint;
+  const depositInPool = tokenX.publicKey.equals(depositMint) || tokenY.publicKey.equals(depositMint);
+  const requested = b.outputMint ? new PublicKey(b.outputMint) : depositMint;
+  const toDeposit = requested.equals(depositMint);
+  if (!toDeposit && !requested.equals(tokenX.publicKey) && !requested.equals(tokenY.publicKey))
+    throw new ApiError(400, "Validation", "zap can only end in one of the pool's tokens or the deposit token");
+  // A pool without the deposit mint zaps into token Y for the deposit mint. A follow-up swaps only
+  // the token Y this withdraw returned into the deposit mint, measured against the balance before it.
+  const viaY = toDeposit && !depositInPool;
+  const outputMint = viaY ? tokenY.publicKey : requested;
+  const followUpSources = viaY
+    ? [{ mint: outputMint.toBase58(), balanceBefore: (await vaultTokenBalance(c, tokenY)).toString(), ...(b.followUpMinOut && { minOut: b.followUpMinOut }) }]
+    : [];
+  // A separate swap measures the source this withdraw returned against the balance before it, so
+  // the deposit token, whose idle balance deposits and withdrawals move, always swaps inside it.
+  const source = outputMint.equals(tokenX.publicKey) ? tokenY : tokenX;
+  const separateSwap = b.separateSwap === true && !source.publicKey.equals(depositMint);
+  const sources = separateSwap
+    ? [
+        {
+          mint: source.publicKey.toBase58(),
+          balanceBefore: (await vaultTokenBalance(c, source)).toString(),
+          ...(b.minOut && { minOut: b.minOut }),
+          ...(!outputMint.equals(depositMint) && { outputMint: outputMint.toBase58() }),
+        },
+        ...followUpSources,
+      ]
+    : followUpSources;
+  const next = sources.length ? zapSwapNextStep({ vault: b.vault, slippageBps: slippage }, sources) : undefined;
+  const built = separateSwap
+    ? await plainRemove(c, p, b.bpsToRemove, selection, b.cursorBinId, setup)
+    : await zapRemove(c, p, b.bpsToRemove, selection ?? p, b.cursorBinId, slippage, setup, outputMint, b.minOut);
+  if (!next) return built;
+  return Array.isArray(built) ? built.map((step, index) => (index === built.length - 1 ? { ...step, next } : step)) : { ...built, next };
+}
+
+/** Removes `bpsToRemove` of the selection, or of the whole position, in as many transactions as its bins need. */
+async function plainRemove(
+  c: DlmmCtx,
+  p: OpenPosition,
+  bpsToRemove: number,
+  selection: BinRange | null,
+  cursorBinId: number | undefined,
+  setup: TransactionInstruction[],
+): Promise<LocalStep | LocalStep[]> {
+  if (cursorBinId === undefined && widthOf(p) <= DLMM_INITIAL_POSITION_WIDTH)
+    return assemble(c.env, [...setup, ...vaultAtaIxs(c, p.pool), await removeLiquidityIx(c, p, bpsToRemove, selection ?? undefined)]);
   const bounds = selection ?? p;
-  const lowerBinId = b.cursorBinId ?? bounds.lowerBinId;
+  const lowerBinId = cursorBinId ?? bounds.lowerBinId;
   if (lowerBinId < bounds.lowerBinId || lowerBinId > bounds.upperBinId)
     throw new ApiError(400, "Validation", selection ? "cursor must be inside the selected bins" : "cursor must be inside the position");
-  const head = setup.length ? [await assemble(env, setup)] : [];
+  const head = setup.length ? [await assemble(c.env, setup)] : [];
   const chunks = await exitChunks(
     c,
     { lowerBinId, upperBinId: bounds.upperBinId },
-    async (chunk) => [...vaultAtaIxs(c, p.pool), await removeLiquidityIx(c, p, b.bpsToRemove, chunk)],
+    async (chunk) => [...vaultAtaIxs(c, p.pool), await removeLiquidityIx(c, p, bpsToRemove, chunk)],
     setup.length > 0,
   );
   return [...head, ...chunks];

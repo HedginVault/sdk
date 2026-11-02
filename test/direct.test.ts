@@ -6,7 +6,7 @@ import { createDirectClient } from "../src/direct";
 import { ApiError } from "../src/errors";
 import idl from "../src/idl/hedge_vault.json";
 import type { HedgeVault } from "../src/idl/hedge_vault";
-import { getConfigPda, getShareMintPda, getVaultPda } from "../src/chain/pda";
+import { getConfigPda, getMetadataPda, getShareMintPda, getVaultPda } from "../src/chain/pda";
 
 const coder = new Program<HedgeVault>(idl as HedgeVault, { connection: {} as Connection }).coder.accounts;
 
@@ -32,7 +32,8 @@ function vaultFields(id: number, overrides: Record<string, unknown> = {}) {
     id: new BN(id),
     authority: MANAGER,
     name: nameBytes("Alpha"),
-    reservedKeys: bytes(64),
+    reservedKeys: bytes(32),
+    parent: PublicKey.default,
     depositMint: HUSD,
     shareMint: PublicKey.default,
     depositCap: new BN("18446744073709551615"),
@@ -54,8 +55,10 @@ function vaultFields(id: number, overrides: Record<string, unknown> = {}) {
     version: 1,
     depositPaused: 0,
     withdrawalPaused: 1,
-    padding0: bytes(3),
-    reserved0: bytes(8),
+    approvalRequired: 0,
+    forgivenessBps: 0,
+    childCount: 0,
+    reserved0: bytes(7),
     minDeposit: new BN(1_000_000),
     minWithdrawalShares: new BN(500_000),
     reserved1: bytes(24),
@@ -65,7 +68,8 @@ function vaultFields(id: number, overrides: Record<string, unknown> = {}) {
     pendingManagementFeeBps: 100,
     openStrategyCount: 2,
     delegateCount: 1,
-    reserved3: bytes(32),
+    lossCarry: new BN(0),
+    reserved3: bytes(24),
     ...overrides,
   };
 }
@@ -91,7 +95,7 @@ const configFields = {
   reserve: Array.from({ length: 18 }, () => new BN(0)),
 };
 
-const request = (vault: PublicKey, authority: PublicKey, amount: number, epoch: number, createdTs: number) => ({
+const request = (vault: PublicKey, authority: PublicKey, amount: number, epoch: number, createdTs: number, approved = 0) => ({
   authority,
   vault,
   amount: new BN(amount),
@@ -100,7 +104,8 @@ const request = (vault: PublicKey, authority: PublicKey, amount: number, epoch: 
   createdTs: new BN(createdTs),
   bump: 1,
   rentEscrow: new BN(0),
-  reserved: bytes(24),
+  approved,
+  reserved: bytes(23),
 });
 
 function mintData(decimals: number, supply: bigint) {
@@ -189,6 +194,9 @@ describe("createDirectClient", () => {
       depositSymbol: "HUSD",
       depositDecimals: 6,
       totalAssets: "2500000000",
+      approvalRequired: false,
+      parent: null,
+      childCount: 0,
       id: "1",
       navPerShare: "1050000000",
       depositCap: "18446744073709551615",
@@ -198,6 +206,7 @@ describe("createDirectClient", () => {
       authority: "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN",
       shareMint: "8W8Fm5j5Xwgwgrgjd6fW2de9cgrzPcXYFqzuc6uTeEu3",
       shareSupply: "2380952380",
+      shareSymbol: null,
       idleBalance: "750000000",
       pendingDeposits: "40000000",
       pendingWithdrawalShares: "7000000",
@@ -241,6 +250,9 @@ describe("createDirectClient", () => {
         depositSymbol: "HUSD",
         depositDecimals: 6,
         totalAssets: "2500000000",
+        approvalRequired: false,
+        parent: null,
+        childCount: 0,
       },
       {
         address: "CxmmBfsCK1NJVMVga2oewCHr34AVV2mPw9WtdAggwxAE",
@@ -250,6 +262,9 @@ describe("createDirectClient", () => {
         depositSymbol: "USDC",
         depositDecimals: 6,
         totalAssets: "0",
+        approvalRequired: false,
+        parent: null,
+        childCount: 0,
       },
     ]);
     expect(calls).toEqual(["getProgramAccounts:r2ahBQ6gbPCJ9FxBymYcXuwXi8NmenRry7SE7QR7FAt", "getMultipleAccountsInfo"]);
@@ -290,11 +305,11 @@ describe("createDirectClient", () => {
     vi.setSystemTime((1000 * EPOCH + 600) * 1000);
     expect(await client.getRequests(VAULT_1.toBase58())).toEqual({
       deposits: [
-        { owner: ALICE.toBase58(), amount: "5000000", epoch: "999", createdTs: 999 * EPOCH + 60, state: "resolvable", cancellable: false },
-        { owner: BOB.toBase58(), amount: "3000000", epoch: "1000", createdTs: 1000 * EPOCH + 900, state: "pending", cancellable: true },
+        { owner: ALICE.toBase58(), amount: "5000000", epoch: "999", createdTs: 999 * EPOCH + 60, state: "resolvable", cancellable: false, awaitingApproval: false },
+        { owner: BOB.toBase58(), amount: "3000000", epoch: "1000", createdTs: 1000 * EPOCH + 900, state: "pending", cancellable: true, awaitingApproval: false },
       ],
       withdrawals: [
-        { owner: ALICE.toBase58(), shares: "2000000", epoch: "999", createdTs: 999 * EPOCH + 120, state: "resolvable", cancellable: false },
+        { owner: ALICE.toBase58(), shares: "2000000", epoch: "999", createdTs: 999 * EPOCH + 120, state: "resolvable", cancellable: false, awaitingApproval: false },
       ],
     });
 
@@ -313,6 +328,72 @@ describe("createDirectClient", () => {
     vi.setSystemTime((1000 * EPOCH + 600) * 1000);
     const { deposits } = await createDirectClient({ connection, fetch: jupiterOk() }).getRequests(VAULT_1.toBase58());
     expect(deposits.map((d) => [d.state, d.cancellable])).toEqual([["resolvable", true]]);
+  });
+
+  it("decodes a child vault and approval state from the new account layouts", async () => {
+    const accounts = await chain();
+    const child = key(40);
+    accounts.set(
+      VAULT_1.toBase58(),
+      account(PROGRAM, await coder.encode("vault", vaultFields(1, { shareMint: getShareMintPda(VAULT_1, PROGRAM), approvalRequired: 1, childCount: 1, forgivenessBps: 2500, lossCarry: new BN(77) }))),
+    );
+    // A child vault takes no deposits, so it has no share mint account.
+    accounts.set(child.toBase58(), account(PROGRAM, await coder.encode("vault", vaultFields(3, { parent: VAULT_1, name: nameBytes("Child") }))));
+    accounts.set(ataOf(child, HUSD).toBase58(), account(TOKEN_PROGRAM, tokenAccountData(5_000_000n)));
+    const add = async (address: PublicKey, name: "depositRequest" | "withdrawalRequest", fields: ReturnType<typeof request>) =>
+      accounts.set(address.toBase58(), account(PROGRAM, await coder.encode(name, fields)));
+    await add(key(20), "depositRequest", request(VAULT_1, BOB, 3_000_000, 999, 999 * EPOCH + 900, 1));
+    await add(key(21), "depositRequest", request(VAULT_1, ALICE, 5_000_000, 999, 999 * EPOCH + 60, 0));
+    await add(key(22), "withdrawalRequest", request(VAULT_1, ALICE, 2_000_000, 999, 999 * EPOCH + 120, 0));
+    const { connection } = fakeConnection(accounts);
+    const client = createDirectClient({ connection, fetch: jupiterOk() });
+
+    expect((await client.listVaults()).map((v) => [v.address, v.parent, v.childCount, v.approvalRequired])).toEqual([
+      [VAULT_1.toBase58(), null, 1, true],
+      [VAULT_2.toBase58(), null, 0, false],
+    ]);
+    expect(await client.getVault(child.toBase58())).toMatchObject({
+      name: "Child",
+      parent: VAULT_1.toBase58(),
+      childCount: 0,
+      shareSupply: "0",
+      shareSymbol: null,
+      idleBalance: "5000000",
+    });
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime((1000 * EPOCH + 600) * 1000);
+    expect(await client.getRequests(VAULT_1.toBase58())).toEqual({
+      deposits: [
+        { owner: ALICE.toBase58(), amount: "5000000", epoch: "999", createdTs: 999 * EPOCH + 60, state: "resolvable", cancellable: true, awaitingApproval: true },
+        { owner: BOB.toBase58(), amount: "3000000", epoch: "999", createdTs: 999 * EPOCH + 900, state: "resolvable", cancellable: false, awaitingApproval: false },
+      ],
+      withdrawals: [
+        { owner: ALICE.toBase58(), shares: "2000000", epoch: "999", createdTs: 999 * EPOCH + 120, state: "resolvable", cancellable: true, awaitingApproval: true },
+      ],
+    });
+  });
+
+  it("reads the share symbol from the share mint's Metaplex metadata", async () => {
+    const accounts = await chain();
+    const shareMint = getShareMintPda(VAULT_1, PROGRAM);
+    const str = (s: string, cap: number) => {
+      const out = Buffer.alloc(4 + cap);
+      out.writeUInt32LE(cap);
+      out.write(s, 4);
+      return out;
+    };
+    const metadata = Buffer.concat([Buffer.from([4]), key(5).toBuffer(), shareMint.toBuffer(), str("Alpha Shares", 32), str("hALPHA", 10)]);
+    accounts.set(getMetadataPda(shareMint).toBase58(), account(new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"), metadata));
+    const { connection } = fakeConnection(accounts);
+    expect((await createDirectClient({ connection, fetch: jupiterOk() }).getVault(VAULT_1.toBase58())).shareSymbol).toBe("hALPHA");
+  });
+
+  it("leaves out a vault whose deposit mint is gone instead of failing the list", async () => {
+    const accounts = await chain();
+    accounts.delete(USDC.toBase58());
+    const { connection } = fakeConnection(accounts);
+    expect((await createDirectClient({ connection, fetch: jupiterOk() }).listVaults()).map((v) => v.address)).toEqual([VAULT_1.toBase58()]);
   });
 
   it("rejects addresses that are not vaults of the program", async () => {

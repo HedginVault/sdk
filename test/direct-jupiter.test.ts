@@ -44,7 +44,12 @@ const AMM = [key(51), key(52)];
 const UNLISTED = key(53);
 const SWAP_DATA = Buffer.from([...ROUTE, 7, 7, 7]);
 const LITE = "https://lite-api.jup.ag/swap/v1";
-const EXCLUDE = "excludeDexes=Kipseli%2CObsidian%2CQuantum%2C1DEX&maxAccounts=40";
+const EXCLUDE = "excludeDexes=Kipseli%2CObsidian%2CQuantum%2C1DEX";
+const SWAP_AUTHORITY = getSwapAuthorityPda(VAULT, PROGRAM);
+/** The two caps a lone swap quotes: `SWAP_MAX_ACCOUNTS`, and the most its own accounts leave room for. */
+// The relay locks 19 distinct accounts with the payer and budget program: 64 - (19 - 4) - 5 hops = 44.
+const CAPS = [40, 44];
+const quoteUrl = (query: string, cap: number) => `${LITE}/quote?${query}&swapMode=ExactIn&${EXCLUDE}&maxAccounts=${cap}`;
 
 const quoteResponse = (labels = ["Meteora DLMM"]) => ({
   inputMint: USDC.toBase58(),
@@ -115,7 +120,7 @@ function fakeJupiter(responses: { quote?: () => Response; swap?: () => Response 
       body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
     });
     if (url.includes("/quote?")) return responses.quote?.() ?? json(quoteResponse());
-    return responses.swap?.() ?? json(swapInstructions(VAULT, BONK, TOKEN_2022));
+    return responses.swap?.() ?? json(swapInstructions(SWAP_AUTHORITY, BONK, TOKEN_2022));
   };
   return { fetch, calls };
 }
@@ -169,9 +174,12 @@ const swapAccounts = {
   destination_mint: BONK.toBase58(),
   vault_source_token_account: ata(VAULT, USDC, TOKEN_PROGRAM),
   vault_destination_token_account: BONK_ATA.toBase58(),
+  swap_authority: SWAP_AUTHORITY.toBase58(),
+  swap_source_token_account: ata(SWAP_AUTHORITY, USDC, TOKEN_PROGRAM),
+  swap_destination_token_account: ata(SWAP_AUTHORITY, BONK, TOKEN_2022),
+  system_program: "11111111111111111111111111111111",
   source_token_program: TOKEN_PROGRAM.toBase58(),
   destination_token_program: TOKEN_2022.toBase58(),
-  system_program: "11111111111111111111111111111111",
   associated_token_program: ATA_PROGRAM.toBase58(),
   event_authority: JUP_EVENT_AUTHORITY.toBase58(),
   jupiter_program: JUP.toBase58(),
@@ -179,7 +187,7 @@ const swapAccounts = {
 };
 
 describe("direct jupiter/swap", () => {
-  it("swaps as the vault authority through the quoted route and confirms", async () => {
+  it("swaps as the vault's swap authority through the best quoted route and confirms", async () => {
     const jupiter = fakeJupiter();
     const { outcome, sent, calls, txs } = await run(buy, {}, manager, await jupiterChain(), { fetch: jupiter.fetch });
     expect(outcome).toEqual({ kind: "confirmed", signatures: [expect.any(String)] });
@@ -189,37 +197,38 @@ describe("direct jupiter/swap", () => {
       {
         hedge: [
           {
-            name: "jupiterSwap",
+            name: "jupiterSwapViaAuthority",
             args: { swapData: SWAP_DATA.toString("base64"), amount: "1000000", slippageBps: 50 },
             accounts: swapAccounts,
             // The trailing user meta stays, stripped of its signer flag.
-            remaining: [...AMM.map((k) => k.toBase58()), V],
+            remaining: [...AMM.map((k) => k.toBase58()), SWAP_AUTHORITY.toBase58()],
           },
         ],
         payer: M,
         blockhash: expect.any(String),
         computeUnitLimit: 70_000,
         computeUnitPriceMicroLamports: 6_000n,
-        // Jupiter's create of the destination ATA is dropped: `jupiter_swap` creates it.
-        programs: [COMPUTE_BUDGET, COMPUTE_BUDGET, "jupiterSwap"],
+        // Jupiter's create of the destination ATA is dropped: `jupiter_swap_via_authority` creates it.
+        programs: [COMPUTE_BUDGET, COMPUTE_BUDGET, "jupiterSwapViaAuthority"],
         lookupTables: [ALT.toBase58()],
       },
     ]);
+    // Both caps quote the same route, so it is built once.
     expect(jupiter.calls).toEqual([
-      {
-        url: `${LITE}/quote?inputMint=${USDC.toBase58()}&outputMint=${BONK.toBase58()}&amount=1000000&slippageBps=50&swapMode=ExactIn&${EXCLUDE}`,
+      ...CAPS.map((cap) => ({
+        url: quoteUrl(`inputMint=${USDC.toBase58()}&outputMint=${BONK.toBase58()}&amount=1000000&slippageBps=50`, cap),
         method: "GET",
         headers: { "Content-Type": "application/json" },
         body: undefined,
-      },
+      })),
       {
         url: `${LITE}/swap-instructions`,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: {
           quoteResponse: quoteResponse(),
-          userPublicKey: V,
-          destinationTokenAccount: BONK_ATA.toBase58(),
+          userPublicKey: SWAP_AUTHORITY.toBase58(),
+          destinationTokenAccount: ata(SWAP_AUTHORITY, BONK, TOKEN_2022),
           useSharedAccounts: false,
           wrapAndUnwrapSol: false,
           dynamicSlippage: false,
@@ -253,7 +262,7 @@ describe("direct jupiter/swap", () => {
     const jupiter = fakeJupiter();
     const { ix } = await run({ ...buy, slippageBps: 900 }, {}, manager, await jupiterChain({ maxSlippageBps: 300 }), { fetch: jupiter.fetch });
     expect(ix?.args).toEqual({ swapData: SWAP_DATA.toString("base64"), amount: "1000000", slippageBps: 300 });
-    expect(jupiter.calls[0]?.url).toContain("&slippageBps=300&");
+    expect(jupiter.calls.map((c) => c.url.includes("&slippageBps=300&"))).toEqual([true, true, false]);
   });
 
   it("caps at 1000 bps when the config's cap is the legacy zero", async () => {
@@ -283,7 +292,7 @@ describe("direct jupiter/swap", () => {
     {
       failure: "no route",
       responses: { quote: () => json({ error: "No routes found", errorCode: "COULD_NOT_FIND_ANY_ROUTE" }, 400) },
-      code: "JupiterQuoteFailed",
+      code: "JupiterNoRoute",
       message: "Jupiter found no swap route for this pair and amount. Try a different amount or token.",
     },
     {
@@ -312,7 +321,7 @@ describe("direct jupiter/swap", () => {
     },
     {
       failure: "a swap instruction with a bad program id",
-      responses: { swap: () => json({ ...swapInstructions(VAULT, BONK, TOKEN_2022), swapInstruction: { programId: "nope", accounts: [], data: "" } }) },
+      responses: { swap: () => json({ ...swapInstructions(SWAP_AUTHORITY, BONK, TOKEN_2022), swapInstruction: { programId: "nope", accounts: [], data: "" } }) },
       code: "JupiterBadResponse",
       message: "Jupiter returned an unexpected response (/swap-instructions)",
     },
@@ -320,7 +329,7 @@ describe("direct jupiter/swap", () => {
       failure: "a shared-accounts route",
       responses: {
         swap: () => {
-          const res = swapInstructions(VAULT, BONK, TOKEN_2022);
+          const res = swapInstructions(SWAP_AUTHORITY, BONK, TOKEN_2022);
           return json({ ...res, swapInstruction: { ...res.swapInstruction, data: Buffer.from(SHARED_ACCOUNTS_ROUTE).toString("base64") } });
         },
       },
@@ -348,6 +357,7 @@ describe("direct jupiter/swap", () => {
     await run(buy, {}, manager, await jupiterChain(), { fetch: jupiter.fetch, jupiterApiKey: "test-key" });
     expect(jupiter.calls.map((c) => [c.url.split("?")[0], c.headers])).toEqual([
       ["https://api.jup.ag/swap/v1/quote", { "Content-Type": "application/json", "x-api-key": "test-key" }],
+      ["https://api.jup.ag/swap/v1/quote", { "Content-Type": "application/json", "x-api-key": "test-key" }],
       ["https://api.jup.ag/swap/v1/swap-instructions", { "Content-Type": "application/json", "x-api-key": "test-key" }],
     ]);
   });
@@ -355,22 +365,26 @@ describe("direct jupiter/swap", () => {
   it("uses jupiterHost over the default host", async () => {
     const jupiter = fakeJupiter();
     await run(buy, {}, manager, await jupiterChain(), { fetch: jupiter.fetch, jupiterHost: "https://jup.example" });
-    expect(jupiter.calls.map((c) => c.url.split("?")[0])).toEqual(["https://jup.example/swap/v1/quote", "https://jup.example/swap/v1/swap-instructions"]);
+    expect(jupiter.calls.map((c) => c.url.split("?")[0])).toEqual([
+      "https://jup.example/swap/v1/quote",
+      "https://jup.example/swap/v1/quote",
+      "https://jup.example/swap/v1/swap-instructions",
+    ]);
   });
 
   it("creates the destination strategy in the same transaction on the first swap into a token", async () => {
-    const jupiter = fakeJupiter({ swap: () => json(swapInstructions(VAULT, SOL, TOKEN_PROGRAM)) });
+    const jupiter = fakeJupiter({ swap: () => json(swapInstructions(SWAP_AUTHORITY, SOL, TOKEN_PROGRAM)) });
     const { outcome, txs } = await run({ ...buy, destinationMint: SOL.toBase58() }, {}, manager, await jupiterChain(), { fetch: jupiter.fetch });
     expect(outcome.kind).toBe("confirmed");
-    expect(txs.map((t) => t.programs)).toEqual([[COMPUTE_BUDGET, COMPUTE_BUDGET, "jupiterInitializeStrategy", "jupiterSwap"]]);
+    expect(txs.map((t) => t.programs)).toEqual([[COMPUTE_BUDGET, COMPUTE_BUDGET, "jupiterInitializeStrategy", "jupiterSwapViaAuthority"]]);
     expect(txs[0]?.hedge.map((h) => h.accounts.strategy)).toEqual([SOL_STRATEGY.toBase58(), SOL_STRATEGY.toBase58()]);
   });
 
   it("closes the source strategy in the same transaction when the swap sells the whole balance", async () => {
-    const jupiter = fakeJupiter({ swap: () => json(swapInstructions(VAULT, USDC, TOKEN_PROGRAM)) });
+    const jupiter = fakeJupiter({ swap: () => json(swapInstructions(SWAP_AUTHORITY, USDC, TOKEN_PROGRAM)) });
     const sell: DirectActionRequest = { ...buy, sourceMint: BONK.toBase58(), destinationMint: USDC.toBase58(), amount: "777" };
     const { txs } = await run(sell, {}, manager, await jupiterChain({ bonkBalance: 777n }), { fetch: jupiter.fetch });
-    expect(txs.map((t) => t.programs)).toEqual([[COMPUTE_BUDGET, COMPUTE_BUDGET, "jupiterSwap", "vaultCloseStrategy"]]);
+    expect(txs.map((t) => t.programs)).toEqual([[COMPUTE_BUDGET, COMPUTE_BUDGET, "jupiterSwapViaAuthority", "vaultCloseStrategy"]]);
     expect(txs[0]?.hedge[1]).toEqual({
       name: "vaultCloseStrategy",
       args: {},
@@ -383,19 +397,29 @@ describe("direct jupiter/swap", () => {
     { left: "a partial balance", bonkBalance: 778n, withheld: undefined },
     { left: "withheld transfer fees", bonkBalance: 777n, withheld: 1n },
   ])("keeps the source strategy open with $left", async ({ bonkBalance, withheld }) => {
-    const jupiter = fakeJupiter({ swap: () => json(swapInstructions(VAULT, USDC, TOKEN_PROGRAM)) });
+    const jupiter = fakeJupiter({ swap: () => json(swapInstructions(SWAP_AUTHORITY, USDC, TOKEN_PROGRAM)) });
     const sell: DirectActionRequest = { ...buy, sourceMint: BONK.toBase58(), destinationMint: USDC.toBase58(), amount: "777" };
     const { txs } = await run(sell, {}, manager, await jupiterChain({ bonkBalance, withheld }), { fetch: jupiter.fetch });
-    expect(txs.map((t) => t.programs)).toEqual([[COMPUTE_BUDGET, COMPUTE_BUDGET, "jupiterSwap"]]);
+    expect(txs.map((t) => t.programs)).toEqual([[COMPUTE_BUDGET, COMPUTE_BUDGET, "jupiterSwapViaAuthority"]]);
   });
 
-  it("runs a Pump.fun route as the vault's swap authority", async () => {
-    const authority = getSwapAuthorityPda(VAULT, PROGRAM);
-    const jupiter = fakeJupiter({ quote: () => json(quoteResponse(["Pump.fun"])), swap: () => json(swapInstructions(authority, BONK, TOKEN_2022)) });
-    const { ix } = await run(buy, {}, manager, await jupiterChain(), { fetch: jupiter.fetch });
-    expect(ix?.name).toBe("jupiterSwapViaAuthority");
-    expect(ix?.accounts).toMatchObject({ swap_authority: authority.toBase58(), swap_destination_token_account: ata(authority, BONK, TOKEN_2022) });
-    expect(jupiter.calls[1]?.body).toMatchObject({ userPublicKey: authority.toBase58(), destinationTokenAccount: ata(authority, BONK, TOKEN_2022) });
+  it("tightens the route's slippage in its swap data to hold the approved minOutAmount", async () => {
+    // 52_000_000_000 quoted, 51_896_000_000 approved: (52e9 - 51.896e9) * 10_000 / 52e9 = 20 bps, under the 50 asked.
+    const { ix } = await run({ ...buy, minOutAmount: "51896000000" }, {}, manager, await jupiterChain(), { fetch: fakeJupiter().fetch });
+    expect(ix?.args).toEqual({ swapData: Buffer.from([...ROUTE, 20, 0, 7]).toString("base64"), amount: "1000000", slippageBps: 50 });
+  });
+
+  it("fails with QuoteMoved, before building a route, when the fresh quote pays less than minOutAmount", async () => {
+    const jupiter = fakeJupiter();
+    const { outcome, sent } = await run({ ...buy, minOutAmount: "52000000001" }, {}, manager, await jupiterChain(), { fetch: jupiter.fetch });
+    expect(outcome).toEqual({
+      kind: "failed",
+      signatures: [],
+      code: "QuoteMoved",
+      message: "The price moved past your slippage since the quote. Review the new quote and try again.",
+    });
+    expect(jupiter.calls.map((c) => c.method)).toEqual(["GET", "GET"]);
+    expect(sent).toEqual([]);
   });
 });
 
@@ -407,7 +431,7 @@ async function buildSteps(action: "jupiter/swap" | "jupiter/sweep", body: Record
   return { steps, calls, txs: steps.map((s) => decodeTx(Buffer.from(s.transaction, "base64"), accounts)) };
 }
 
-/** AMM accounts outside the lookup table: at 15 a sweep's swap fits alone but not with its close; at 16 a swap no longer fits with a strategy init. */
+/** AMM accounts outside the lookup table: at 13 a swap fits alone but not with a strategy init; at 12 a sweep's swap fits alone but not with its close. */
 const route = (length: number) => Array.from({ length }, (_, i) => key(100 + i));
 
 describe("direct jupiter/swap steps", () => {
@@ -417,12 +441,28 @@ describe("direct jupiter/swap steps", () => {
     expect(steps[0]).toMatchObject({ initializesStrategy: false, ticket: "local", simulation: { unitsConsumed: 50_000 } });
   });
 
-  it("initializes the strategy alone and continues with the swap when both do not fit", async () => {
-    const jupiter = fakeJupiter({ swap: () => json(swapInstructions(VAULT, SOL, TOKEN_PROGRAM, route(16))) });
+  it("sets up the strategy, then swaps in a second step simulated only at send, when both do not fit in one", async () => {
+    const jupiter = fakeJupiter({ swap: () => json(swapInstructions(SWAP_AUTHORITY, SOL, TOKEN_PROGRAM, route(13))) });
     const body = { vault: V, sourceMint: USDC.toBase58(), destinationMint: SOL.toBase58(), amount: "1000000", slippageBps: 900 };
     const { steps, txs } = await buildSteps("jupiter/swap", body, await jupiterChain(), jupiter.fetch);
-    expect(txs.map((t) => t.programs)).toEqual([[COMPUTE_BUDGET, COMPUTE_BUDGET, "jupiterInitializeStrategy"]]);
-    expect(steps.map((s) => [s.initializesStrategy, s.next])).toEqual([[true, { path: "jupiter/swap", body }]]);
+    expect(txs.map((t) => t.programs)).toEqual([
+      [COMPUTE_BUDGET, COMPUTE_BUDGET, "jupiterInitializeStrategy"],
+      [COMPUTE_BUDGET, COMPUTE_BUDGET, "jupiterSwapViaAuthority"],
+    ]);
+    expect(steps.map((s) => [s.label, s.initializesStrategy, s.simulation, s.sendConcurrently, s.next])).toEqual([
+      ["Set up strategy", true, { unitsConsumed: 50_000 }, undefined, undefined],
+      ["Swap", false, { unitsConsumed: 0, deferred: true }, undefined, undefined],
+    ]);
+    // The deferred swap keeps the full limit for the send's preflight to judge.
+    expect(txs[1]?.computeUnitLimit).toBe(1_400_000);
+  });
+
+  it("sends the swap only once the strategy setup has confirmed", async () => {
+    const jupiter = fakeJupiter({ swap: () => json(swapInstructions(SWAP_AUTHORITY, SOL, TOKEN_PROGRAM, route(13))) });
+    const { outcome, calls, txs } = await run({ ...buy, destinationMint: SOL.toBase58() }, {}, manager, await jupiterChain(), { fetch: jupiter.fetch });
+    expect(outcome).toEqual({ kind: "confirmed", signatures: [expect.any(String), expect.any(String)] });
+    expect(calls).toEqual(['send {"preflightCommitment":"confirmed"}', "status", 'send {"preflightCommitment":"confirmed"}', "status"]);
+    expect(txs.map((t) => t.hedge.map((h) => h.name))).toEqual([["jupiterInitializeStrategy"], ["jupiterSwapViaAuthority"]]);
   });
 });
 
@@ -430,11 +470,11 @@ const sweep = (mint: PublicKey, slippageBps = 50): DirectActionRequest => ({ act
 
 describe("direct jupiter/sweep", () => {
   it("sells the whole balance to the deposit mint and closes the strategy while two open DLMM strategies use other mints", async () => {
-    const jupiter = fakeJupiter({ swap: () => json(swapInstructions(VAULT, USDC, TOKEN_PROGRAM)) });
+    const jupiter = fakeJupiter({ swap: () => json(swapInstructions(SWAP_AUTHORITY, USDC, TOKEN_PROGRAM)) });
     const { outcome, txs } = await run(sweep(BONK), {}, manager, await jupiterChain({ bonkBalance: 4_200n }), { fetch: jupiter.fetch });
     expect(outcome.kind).toBe("confirmed");
-    expect(jupiter.calls[0]?.url).toBe(`${LITE}/quote?inputMint=${BONK.toBase58()}&outputMint=${USDC.toBase58()}&amount=4200&slippageBps=50&swapMode=ExactIn&${EXCLUDE}`);
-    expect(txs.map((t) => t.programs)).toEqual([[COMPUTE_BUDGET, COMPUTE_BUDGET, "jupiterSwap", "vaultCloseStrategy"]]);
+    expect(jupiter.calls[0]?.url).toBe(quoteUrl(`inputMint=${BONK.toBase58()}&outputMint=${USDC.toBase58()}&amount=4200&slippageBps=50`, 40));
+    expect(txs.map((t) => t.programs)).toEqual([[COMPUTE_BUDGET, COMPUTE_BUDGET, "jupiterSwapViaAuthority", "vaultCloseStrategy"]]);
     expect(txs[0]?.hedge[0]).toMatchObject({
       args: { amount: "4200", slippageBps: 50 },
       accounts: { strategy: BONK_STRATEGY.toBase58(), source_strategy: P, source_mint: BONK.toBase58(), destination_mint: USDC.toBase58() },
@@ -480,9 +520,9 @@ describe("direct jupiter/sweep", () => {
   });
 
   it("continues with a second sweep when the close does not fit behind a long route", async () => {
-    const jupiter = fakeJupiter({ swap: () => json(swapInstructions(VAULT, USDC, TOKEN_PROGRAM, route(15))) });
+    const jupiter = fakeJupiter({ swap: () => json(swapInstructions(SWAP_AUTHORITY, USDC, TOKEN_PROGRAM, route(12))) });
     const { steps, txs } = await buildSteps("jupiter/sweep", { vault: V, mint: BONK.toBase58(), slippageBps: 900 }, await jupiterChain({ maxSlippageBps: 300, bonkBalance: 9n }), jupiter.fetch);
-    expect(txs.map((t) => t.programs)).toEqual([[COMPUTE_BUDGET, COMPUTE_BUDGET, "jupiterSwap"]]);
+    expect(txs.map((t) => t.programs)).toEqual([[COMPUTE_BUDGET, COMPUTE_BUDGET, "jupiterSwapViaAuthority"]]);
     expect(steps.map((s) => s.next)).toEqual([{ path: "jupiter/sweep", body: { vault: V, mint: BONK.toBase58(), slippageBps: 300 } }]);
   });
 });
@@ -490,12 +530,27 @@ describe("direct jupiter/sweep", () => {
 describe("direct getQuote", () => {
   const request = { vault: V, inputMint: USDC.toBase58(), outputMint: BONK.toBase58(), amount: "1000000", slippageBps: 900 };
 
-  it("returns Jupiter's quote with the slippage capped by the protocol config", async () => {
+  it("returns the route a swap build would take, with the slippage capped by the protocol config", async () => {
     const jupiter = fakeJupiter();
     const { connection } = fakeConnection(await jupiterChain({ maxSlippageBps: 300 }));
     const quote = await createDirectClient({ connection, fetch: jupiter.fetch }).getQuote(request);
     expect(quote).toEqual({ inAmount: "1000000", outAmount: "52000000000", priceImpactPct: "0.0012", routeLabels: ["Meteora DLMM"], slippageBps: 300 });
-    expect(jupiter.calls.map((c) => c.url)).toEqual([`${LITE}/quote?inputMint=${USDC.toBase58()}&outputMint=${BONK.toBase58()}&amount=1000000&slippageBps=300&swapMode=ExactIn&${EXCLUDE}`]);
+    // Built as the vault authority signs it, so the route is one that fits its transaction.
+    expect(jupiter.calls.map((c) => c.url)).toEqual([
+      ...CAPS.map((cap) => quoteUrl(`inputMint=${USDC.toBase58()}&outputMint=${BONK.toBase58()}&amount=1000000&slippageBps=300`, cap)),
+      `${LITE}/swap-instructions`,
+    ]);
+    expect(jupiter.calls[2]?.body).toMatchObject({ userPublicKey: SWAP_AUTHORITY.toBase58() });
+  });
+
+  it("returns the better-paying of two routes", async () => {
+    let quotes = 0;
+    const deep = { ...quoteResponse(["Orca"]), outAmount: "53000000000" };
+    const jupiter = fakeJupiter({ quote: () => json(quotes++ === 0 ? quoteResponse() : deep) });
+    const { connection } = fakeConnection(await jupiterChain());
+    const quote = await createDirectClient({ connection, fetch: jupiter.fetch }).getQuote(request);
+    expect(quote).toMatchObject({ outAmount: "53000000000", routeLabels: ["Orca"] });
+    expect(jupiter.calls[2]?.body).toMatchObject({ quoteResponse: deep });
   });
 
   it("refuses an address that is not a vault before calling Jupiter", async () => {

@@ -2,7 +2,7 @@ import type { IdlAccounts } from "@coral-xyz/anchor";
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { z } from "zod";
 import { type ConfigAccount, decodeTokenAmount } from "../chain/decode";
-import { getAssociatedTokenAddress, getConfigPda, getStrategyPda } from "../chain/pda";
+import { getAssociatedTokenAddress, getConfigPda, getShareMintPda, getStrategyPda } from "../chain/pda";
 import { decodeVault } from "../chain/reads";
 import { ApiError } from "../errors";
 import type { HedgeVault } from "../idl/hedge_vault";
@@ -10,7 +10,7 @@ import type { Quote } from "../schemas";
 import { assemble, type Assembled, fitsInTransaction } from "./assemble";
 import { amountString, assertOperator, type BuildEnv, DELEGATE_JUPITER, delegateFor, loadVaultCtx, type Operator, pubkey, tokenProgramOf, type VaultCtx } from "./context";
 import { jupiterInitializeIx } from "./jupiter-initialize";
-import { jupiterSwapIx, quoteSwap, type SwapMints } from "./jupiter-route";
+import { jupiterSwapIx, type SwapMints } from "./jupiter-route";
 import { closeJupiterStrategyIx, DLMM_PROGRAM_ID, LIMIT_ORDER_DISCRIMINATOR } from "./strategy";
 
 const STRATEGY_VAULT_OFFSET = 8;
@@ -19,13 +19,21 @@ const TRANSFER_FEE_AMOUNT_EXTENSION = 2;
 
 const slippageBps = z.number().int().min(1).max(10_000);
 
-export const jupiterSwapInput = z.object({ vault: pubkey, sourceMint: pubkey, destinationMint: pubkey, amount: amountString, slippageBps });
+export const jupiterSwapInput = z.object({
+  vault: pubkey,
+  sourceMint: pubkey,
+  destinationMint: pubkey,
+  amount: amountString,
+  slippageBps,
+  /** The least `destinationMint` the swap may return, from the quote the manager approved. */
+  minOutAmount: amountString.optional(),
+});
 export const jupiterSweepInput = z.object({ vault: pubkey, mint: pubkey, slippageBps });
 
 /** A swap step, and the local continuation that follows it. */
 export type SwapStep = Assembled & {
   initializesStrategy?: boolean;
-  next?: { path: "jupiter/swap"; body: z.infer<typeof jupiterSwapInput> } | { path: "jupiter/sweep"; body: z.infer<typeof jupiterSweepInput> };
+  next?: { path: "jupiter/sweep"; body: z.infer<typeof jupiterSweepInput> };
 };
 
 /** Zero is a legacy unset value; the program then applies DEFAULT_MAX_SLIPPAGE_BPS (10%). */
@@ -122,7 +130,7 @@ async function loadSwapCtx(env: BuildEnv, address: string, mintKeys: PublicKey[]
   return { vault, operator, delegate, mintInfos, slippageBps: Math.min(requestedSlippageBps, maxSlippageBps(env, config)) };
 }
 
-export async function buildJupiterSwap(env: BuildEnv, b: z.infer<typeof jupiterSwapInput>): Promise<SwapStep> {
+export async function buildJupiterSwap(env: BuildEnv, b: z.infer<typeof jupiterSwapInput>): Promise<SwapStep | SwapStep[]> {
   const source = new PublicKey(b.sourceMint);
   const destination = new PublicKey(b.destinationMint);
   if (source.equals(destination)) throw new ApiError(400, "Validation", "sourceMint and destinationMint must differ");
@@ -134,19 +142,20 @@ export async function buildJupiterSwap(env: BuildEnv, b: z.infer<typeof jupiterS
     destinationTokenProgram: tokenProgramOf(destination, mintInfos[1] ?? null),
   };
 
-  // Every non-deposit side needs its strategy before `jupiter_swap`; the first swap into a token creates it.
+  // Every non-deposit side needs its strategy before `jupiter_swap_via_authority`; the first swap into a token creates it.
   const targets = [source, destination].filter((mint) => !mint.equals(vault.account.depositMint));
   const strategies = await env.connection.getMultipleAccountsInfo(targets.map((mint) => getStrategyPda(vault.key, mint, env.programId)));
   const inits = await Promise.all(targets.filter((_, i) => !strategies[i]).map((mint) => jupiterInitializeIx(env, vault, operator, mint)));
 
   const amount = BigInt(b.amount);
-  const { ix, lookupTables, setup } = await jupiterSwapIx(env, vault, delegate, mints, amount, slippageBps);
+  const minOut = b.minOutAmount === undefined ? undefined : { inAmount: b.amount, minOutAmount: b.minOutAmount };
+  const { ix, lookupTables, setup } = await jupiterSwapIx(env, vault, delegate, mints, amount, slippageBps, minOut);
   const closeIx = await closeEmptiedStrategyIx(env, vault, operator, mints, amount);
   // The close rides behind the swap, or follows as a sweep (a bare close by then) when it does not fit.
-  const swapAndClose = async (ixs: TransactionInstruction[], initializesStrategy: boolean): Promise<SwapStep> => {
+  const swapAndClose = async (ixs: TransactionInstruction[], initializesStrategy: boolean, deferSimulation = false): Promise<SwapStep> => {
     const fits = closeIx !== null && fitsInTransaction(env.payer, [...ixs, closeIx], lookupTables);
     return {
-      ...(await assemble(env, fits && closeIx ? [...ixs, closeIx] : ixs, lookupTables)),
+      ...(await assemble(env, fits && closeIx ? [...ixs, closeIx] : ixs, lookupTables, { deferSimulation })),
       initializesStrategy,
       ...(closeIx && !fits && { next: { path: "jupiter/sweep", body: { vault: b.vault, mint: b.sourceMint, slippageBps } } }),
     };
@@ -154,7 +163,11 @@ export async function buildJupiterSwap(env: BuildEnv, b: z.infer<typeof jupiterS
 
   if (inits.length === 0) return swapAndClose([...setup, ix], false);
   if (fitsInTransaction(env.payer, [...inits, ...setup, ix], lookupTables)) return swapAndClose([...inits, ...setup, ix], true);
-  return { ...(await assemble(env, inits)), initializesStrategy: true, next: { path: "jupiter/swap", body: b } };
+  // One approval for both. The swap is sent once the strategy confirms, so it cannot be simulated before.
+  return [
+    { ...(await assemble(env, inits, [], { label: "Set up strategy" })), initializesStrategy: true },
+    { ...(await swapAndClose([...setup, ix], false, true)), label: "Swap" },
+  ];
 }
 
 /** Sells the vault's entire balance of `mint` to the deposit mint and closes its strategy, atomically when both fit. */
@@ -181,7 +194,7 @@ export async function buildJupiterSweep(env: BuildEnv, b: z.infer<typeof jupiter
     const mints = { source: mint, destination: vault.depositMint, sourceTokenProgram: tokenProgram, destinationTokenProgram: vault.tokenProgram };
     swap = await jupiterSwapIx(env, vault, delegate, mints, balance, slippageBps);
   } catch (e) {
-    if (e instanceof ApiError && e.code === "JupiterQuoteFailed")
+    if (e instanceof ApiError && e.code === "JupiterNoRoute")
       throw new ApiError(422, "SweepUnroutable", "Jupiter found no route for this leftover token; it stays in the vault");
     throw e;
   }
@@ -194,8 +207,12 @@ export async function buildJupiterSweep(env: BuildEnv, b: z.infer<typeof jupiter
 
 export const quoteInput = z.object({ vault: pubkey, inputMint: pubkey, outputMint: pubkey, amount: amountString, slippageBps });
 
-/** 1 RPC and 1 HTTP: the app's `/jupiter/quote`, slippage capped by the protocol config. */
-export async function readQuote(env: Pick<BuildEnv, "connection" | "programId" | "program" | "fetch" | "jupiter">, request: unknown): Promise<Quote> {
+/**
+ * The app's `/jupiter/quote`, slippage capped by the protocol config: the route a swap build takes,
+ * the best-paying one that fits, built as the vault authority would sign it. 2 RPC, then as
+ * `jupiterSwapIx`.
+ */
+export async function readQuote(env: Omit<BuildEnv, "payer" | "now">, request: unknown): Promise<Quote> {
   const parsed = quoteInput.safeParse(request);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -205,10 +222,25 @@ export async function readQuote(env: Pick<BuildEnv, "connection" | "programId" |
   const inputMint = new PublicKey(q.inputMint);
   const outputMint = new PublicKey(q.outputMint);
   if (inputMint.equals(outputMint)) throw new ApiError(400, "Validation", "inputMint and outputMint must differ");
-  // A quote is only ever built into a `jupiter_swap` of this vault, so an unknown vault fails before Jupiter is called.
-  const [vaultInfo, configInfo] = await env.connection.getMultipleAccountsInfo([new PublicKey(q.vault), getConfigPda(env.programId)]);
-  decodeVault({ programId: env.programId, coder: env.program.coder.accounts }, vaultInfo ?? null);
+  // A quote is only ever built into a `jupiter_swap_via_authority` of this vault, so an unknown vault fails before Jupiter is called.
+  const key = new PublicKey(q.vault);
+  const [vaultInfo, configInfo] = await env.connection.getMultipleAccountsInfo([key, getConfigPda(env.programId)]);
+  const account = decodeVault({ programId: env.programId, coder: env.program.coder.accounts }, vaultInfo ?? null);
   const slippage = Math.min(q.slippageBps, maxSlippageBps(env, configInfo));
-  const { view } = await quoteSwap(env, inputMint, outputMint, BigInt(q.amount), slippage);
-  return { ...view, slippageBps: slippage };
+  const [depositInfo, inputInfo, outputInfo] = await env.connection.getMultipleAccountsInfo([account.depositMint, inputMint, outputMint]);
+  const vault: VaultCtx = {
+    key,
+    account,
+    depositMint: account.depositMint,
+    tokenProgram: tokenProgramOf(account.depositMint, depositInfo ?? null),
+    shareMint: getShareMintPda(key, env.programId),
+  };
+  const mints = {
+    source: inputMint,
+    destination: outputMint,
+    sourceTokenProgram: tokenProgramOf(inputMint, inputInfo ?? null),
+    destinationTokenProgram: tokenProgramOf(outputMint, outputInfo ?? null),
+  };
+  const { quote } = await jupiterSwapIx({ ...env, payer: account.authority, now: Date.now }, vault, null, mints, BigInt(q.amount), slippage);
+  return { ...quote, slippageBps: slippage };
 }

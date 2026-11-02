@@ -1,9 +1,10 @@
-import { BN } from "@coral-xyz/anchor";
+import { BN, type IdlTypes } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import { z } from "zod";
 import type { ConfigAccount } from "../chain/decode";
 import { getConfigPda, getManagerPda, getVaultPda } from "../chain/pda";
 import { ApiError } from "../errors";
+import type { HedgeVault } from "../idl/hedge_vault";
 import { assembled, type InstructionSet } from "./assemble";
 import { amountString, assertAuthority, bps, type BuildEnv, loadVaultCtx, pubkey, tokenProgramOf } from "./context";
 
@@ -25,6 +26,8 @@ export const vaultInitializeInput = z.object({
   depositCap: amountString,
   minDeposit: amountString,
   minWithdrawalShares: amountString,
+  /** Requests settle only after the manager approves them. */
+  approvalRequired: z.boolean().optional(),
 });
 
 /** 1 RPC for the manager, config and mint. Carries the new vault's address. */
@@ -57,7 +60,11 @@ export async function vaultInitializeInstructions(env: BuildEnv, b: z.infer<type
       depositMintTokenProgram: tokenProgramOf(depositMint, mintInfo ?? null),
     })
     .instruction();
-  return { instructions: [ix], vault: vault.toBase58() };
+  // The program initializes a vault open, so a private one is set in the same transaction.
+  const approval = b.approvalRequired
+    ? [await env.program.methods.vaultUpdate(emptyUpdate({ approvalRequired: true })).accounts({ authority, vault }).instruction()]
+    : [];
+  return { instructions: [ix, ...approval], vault: vault.toBase58() };
 }
 
 export const buildVaultInitialize = assembled(vaultInitializeInstructions);
@@ -73,6 +80,8 @@ export const vaultUpdateInput = z
     status: z.enum(["normal", "paused", "reduceOnly"]).optional(),
     depositPaused: z.boolean().optional(),
     withdrawalPaused: z.boolean().optional(),
+    /** Requests settle only after the manager approves them. */
+    approvalRequired: z.boolean().optional(),
   })
   // An all-undefined body would assemble a signable instruction that changes nothing.
   .refine(({ vault, ...fields }) => Object.values(fields).some((v) => v !== undefined), "no fields to update");
@@ -80,20 +89,37 @@ export const vaultUpdateInput = z
 const statusArg = { normal: { normal: {} }, paused: { paused: {} }, reduceOnly: { reduceOnly: {} } } as const;
 const optionalBn = (s: string | undefined) => (s === undefined ? null : new BN(s));
 
+/** `VaultUpdateArgs` with every field unchanged (`None`) except `set`. */
+const emptyUpdate = (set: Partial<IdlTypes<HedgeVault>["vaultUpdateArgs"]>): IdlTypes<HedgeVault>["vaultUpdateArgs"] => ({
+  performanceFeeBps: null,
+  managementFeeBps: null,
+  depositCap: null,
+  minDeposit: null,
+  minWithdrawalShares: null,
+  status: null,
+  depositPaused: null,
+  withdrawalPaused: null,
+  approvalRequired: null,
+  ...set,
+});
+
 export async function vaultUpdateInstructions(env: BuildEnv, b: z.infer<typeof vaultUpdateInput>): Promise<InstructionSet> {
   const vault = await loadVaultCtx(env, b.vault);
   assertAuthority(vault, env.payer);
   const ix = await env.program.methods
-    .vaultUpdate({
-      performanceFeeBps: b.performanceFeeBps ?? null,
-      managementFeeBps: b.managementFeeBps ?? null,
-      depositCap: optionalBn(b.depositCap),
-      minDeposit: optionalBn(b.minDeposit),
-      minWithdrawalShares: optionalBn(b.minWithdrawalShares),
-      status: b.status === undefined ? null : statusArg[b.status],
-      depositPaused: b.depositPaused ?? null,
-      withdrawalPaused: b.withdrawalPaused ?? null,
-    })
+    .vaultUpdate(
+      emptyUpdate({
+        performanceFeeBps: b.performanceFeeBps ?? null,
+        managementFeeBps: b.managementFeeBps ?? null,
+        depositCap: optionalBn(b.depositCap),
+        minDeposit: optionalBn(b.minDeposit),
+        minWithdrawalShares: optionalBn(b.minWithdrawalShares),
+        status: b.status === undefined ? null : statusArg[b.status],
+        depositPaused: b.depositPaused ?? null,
+        withdrawalPaused: b.withdrawalPaused ?? null,
+        approvalRequired: b.approvalRequired ?? null,
+      }),
+    )
     .accounts({ authority: env.payer, vault: vault.key })
     .instruction();
   return { instructions: [ix] };

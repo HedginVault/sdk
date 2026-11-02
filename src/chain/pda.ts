@@ -38,3 +38,7 @@ export const getUnwrapPda = (withdrawalRequest: PublicKey, programId = DEFAULT_P
 /** The associated token account of `owner` for `mint`; `owner` may be a PDA such as a vault. */
 export const getAssociatedTokenAddress = (owner: PublicKey, mint: PublicKey, tokenProgram: PublicKey) =>
   find([owner.toBuffer(), tokenProgram.toBuffer(), mint.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID);
+const METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
+/** The Metaplex metadata account of a mint, where a vault's share token keeps its symbol. */
+export const getMetadataPda = (mint: PublicKey) =>
+  find([Buffer.from("metadata"), METADATA_PROGRAM_ID.toBuffer(), mint.toBuffer()], METADATA_PROGRAM_ID);

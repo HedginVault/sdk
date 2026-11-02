@@ -177,7 +177,7 @@ per vault; nothing is signed or sent. A failure here means the API and this SDK 
 
 ```sh
 yarn install --frozen-lockfile
-yarn typecheck && yarn test && yarn build
+yarn run check && yarn test && yarn build
 ```
 
 ## Release

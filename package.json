@@ -34,12 +34,12 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.test.json",
+    "check": "tsc -p tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "check-api": "tsx --env-file=.env src/check-api.ts",
     "prepare": "tsc -p tsconfig.json",
-    "prepublishOnly": "yarn typecheck && yarn test"
+    "prepublishOnly": "yarn run check && yarn test"
   },
   "peerDependencies": {
     "@solana/web3.js": "^1.98.4"

@@ -18,6 +18,6 @@ jobs:
           node-version: 24
           cache: yarn
       - run: yarn install --frozen-lockfile
-      - run: yarn typecheck
+      - run: yarn run check
       - run: yarn test
       - run: yarn build

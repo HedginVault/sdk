@@ -13,7 +13,7 @@ import { jupiterInitializeIx } from "./jupiter-initialize";
 import { jupiterSwapIx, type SwapMints } from "./jupiter-route";
 import { closeJupiterStrategyIx, DLMM_PROGRAM_ID, LIMIT_ORDER_DISCRIMINATOR } from "./strategy";
 
-const STRATEGY_VAULT_OFFSET = 8;
+export const STRATEGY_VAULT_OFFSET = 8;
 const TOKEN_ACCOUNT_SPAN = 165;
 const TRANSFER_FEE_AMOUNT_EXTENSION = 2;
 

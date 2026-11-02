@@ -225,7 +225,36 @@ export type ActionRequest =
     }
   /** Mints the manager's accrued fee shares to the manager. */
   | { action: "vault/claim-fee"; vault: string }
-  | { action: "vault/close"; vault: string };
+  | { action: "vault/close"; vault: string }
+  /**
+   * Creates a child vault of `vault`, a vault that takes deposits: same authority and deposit mint, no
+   * depositors of its own. With `fundAmount` the same transaction moves that much deposit token into it.
+   * Authority only. The new address is the `Outcome`'s `created.child`.
+   */
+  | {
+      action: "escrow/create";
+      vault: string;
+      /** At most 32 UTF-8 bytes. */
+      name: string;
+      /** Deposit-mint base units, positive. */
+      fundAmount?: BaseUnitString;
+    }
+  /**
+   * Moves `amount` from `vault` into its child vault. `mint` defaults to the deposit mint; another mint must be
+   * tracked by the sending vault, and the receiving vault's Jupiter strategy is created first when missing.
+   * Any live delegate of `vault` may run it.
+   */
+  | { action: "escrow/fund"; vault: string; child: string; amount: BaseUnitString; mint?: string }
+  /** Moves `amount` from the child vault back into `vault`. Same rules as `escrow/fund`. */
+  | { action: "escrow/defund"; vault: string; child: string; amount: BaseUnitString; mint?: string }
+  /** Moves `amount` between any two vaults of `vault`'s family: `vault` itself or its child vaults. */
+  | { action: "escrow/transfer"; vault: string; source: string; destination: string; amount: BaseUnitString; mint?: string }
+  /**
+   * Closes a child vault. With `defundFirst` the same transaction first returns every token it holds to `vault`
+   * and closes its Jupiter strategies. Its LP positions, limit orders and Phoenix account must be closed first.
+   * Authority only.
+   */
+  | { action: "escrow/close"; vault: string; child: string; defundFirst?: boolean };
 
 export type BuildAction = ActionRequest["action"];
 

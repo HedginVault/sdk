@@ -31,6 +31,22 @@ import {
   dlmmLimitOrderPlaceInput,
 } from "./dlmm-limit-order";
 import { buildDlmmZapOut, buildDlmmZapOutSwap, dlmmZapOutInput, dlmmZapOutSwapInput } from "./dlmm-zap";
+import {
+  buildEscrowClose,
+  buildEscrowCreate,
+  buildEscrowDefund,
+  buildEscrowFund,
+  buildEscrowTransfer,
+  escrowCloseInput,
+  escrowCloseInstructions,
+  escrowCreateInput,
+  escrowCreateInstructions,
+  escrowDefundInstructions,
+  escrowFundInstructions,
+  escrowMoveInput,
+  escrowTransferInput,
+  escrowTransferInstructions,
+} from "./escrow";
 import { buildJupiterInitialize, jupiterInitializeInput, jupiterInitializeInstructions } from "./jupiter-initialize";
 import {
   buildPhoenixCancel,
@@ -96,11 +112,16 @@ export type LocalAction =
   | "dlmm/close"
   | "dlmm/limit-order/place"
   | "dlmm/limit-order/cancel"
+  | EscrowAction
   | ContinuationRequest["action"];
+
+type EscrowAction = "escrow/create" | "escrow/fund" | "escrow/defund" | "escrow/transfer" | "escrow/close";
 
 /** One built transaction. `next` can name only a local action, so `execute` never sends a step it cannot continue. */
 export type LocalStep = Assembled & {
   vault?: string;
+  /** The child vault `escrow/create` makes. */
+  child?: string;
   initializesStrategy?: boolean;
   /** The DLMM position or limit order the step creates, with its strategy and inclusive range, as the API reports them. */
   position?: string;
@@ -153,6 +174,11 @@ export const localBuilders = {
   "dlmm/close": { input: dlmmCloseInput, build: buildDlmmClose },
   "dlmm/limit-order/place": { input: dlmmLimitOrderPlaceInput, build: buildDlmmLimitOrderPlace },
   "dlmm/limit-order/cancel": { input: dlmmLimitOrderCancelInput, build: buildDlmmLimitOrderCancel },
+  "escrow/create": { input: escrowCreateInput, build: buildEscrowCreate },
+  "escrow/fund": { input: escrowMoveInput, build: buildEscrowFund },
+  "escrow/defund": { input: escrowMoveInput, build: buildEscrowDefund },
+  "escrow/transfer": { input: escrowTransferInput, build: buildEscrowTransfer },
+  "escrow/close": { input: escrowCloseInput, build: buildEscrowClose },
 } satisfies LocalBuilders;
 
 export const isLocalAction = (action: string): action is LocalAction => Object.hasOwn(localBuilders, action);
@@ -173,7 +199,8 @@ export type InstructionAction =
   | "phoenix/tpsl"
   | "phoenix/cancel"
   | "dlmm/initialize"
-  | "dlmm/limit-order/cancel";
+  | "dlmm/limit-order/cancel"
+  | EscrowAction;
 
 export type LocalInstructionBuilders = { [A in InstructionAction]: (env: BuildEnv, body: ActionBody<A>) => Promise<InstructionSet> };
 
@@ -193,6 +220,11 @@ export const localInstructions = {
   "phoenix/cancel": phoenixCancelInstructions,
   "dlmm/initialize": dlmmInitializeInstructions,
   "dlmm/limit-order/cancel": dlmmLimitOrderCancelInstructions,
+  "escrow/create": escrowCreateInstructions,
+  "escrow/fund": escrowFundInstructions,
+  "escrow/defund": escrowDefundInstructions,
+  "escrow/transfer": escrowTransferInstructions,
+  "escrow/close": escrowCloseInstructions,
 } satisfies LocalInstructionBuilders;
 
 export const isInstructionAction = (action: string): action is InstructionAction => Object.hasOwn(localInstructions, action);

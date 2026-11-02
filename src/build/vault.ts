@@ -12,14 +12,16 @@ import { amountString, assertAuthority, bps, type BuildEnv, loadVaultCtx, pubkey
 const MAX_PERFORMANCE_FEE_BPS = 5_000;
 const MAX_MANAGEMENT_FEE_BPS = 500;
 
-const encodeName = (name: string): number[] => Array.from(Buffer.from(name.padEnd(32, "\0"), "utf8").subarray(0, 32));
+export const encodeName = (name: string): number[] => Array.from(Buffer.from(name.padEnd(32, "\0"), "utf8").subarray(0, 32));
+
+// encodeName truncates at 32 UTF-8 bytes, so bound bytes rather than UTF-16 units.
+export const vaultName = z
+  .string()
+  .min(1)
+  .refine((s) => Buffer.byteLength(s, "utf8") <= 32, "name must be at most 32 bytes");
 
 export const vaultInitializeInput = z.object({
-  // encodeName truncates at 32 UTF-8 bytes, so bound bytes rather than UTF-16 units.
-  name: z
-    .string()
-    .min(1)
-    .refine((s) => Buffer.byteLength(s, "utf8") <= 32, "name must be at most 32 bytes"),
+  name: vaultName,
   depositMint: pubkey,
   performanceFeeBps: bps.max(MAX_PERFORMANCE_FEE_BPS),
   managementFeeBps: bps.max(MAX_MANAGEMENT_FEE_BPS),

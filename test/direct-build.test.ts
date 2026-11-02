@@ -358,7 +358,7 @@ describe("direct execute transport", () => {
     const client = createDirectClient({ connection: fakeConnection(new Map()).connection });
     // @ts-expect-error a swap may need two transactions, so it has no instruction form
     expect(client.instructions.jupiterSwap).toBeUndefined();
-    expect(Object.keys(client.instructions)).toHaveLength(15);
+    expect(Object.keys(client.instructions)).toHaveLength(20);
   });
 
   it("refuses to send a build for another payer, signing nothing", async () => {

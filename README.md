@@ -159,6 +159,8 @@ These actions build locally:
 | `phoenix/cancel` | The vault authority, or a delegate with Phoenix permission. |
 | `dlmm/initialize`, `dlmm/open`, `dlmm/add`, `dlmm/remove`, `dlmm/flip`, `dlmm/claim-fee`, `dlmm/zap-out`, `dlmm/close` | The vault authority, or a delegate with Meteora DLMM permission. |
 | `dlmm/limit-order/place`, `dlmm/limit-order/cancel` | The vault authority, or a delegate with Meteora DLMM permission. |
+| `escrow/create`, `escrow/close` | The parent vault's authority. |
+| `escrow/fund`, `escrow/defund`, `escrow/transfer` | The parent vault's authority, or any live delegate of the parent. |
 
 `jupiter/swap` and `jupiter/sweep` call Jupiter's Swap API (`lite-api.jup.ag`, or `api.jup.ag`
 with `x-api-key` when you pass `jupiterApiKey`; `jupiterHost` overrides the host) for the quote
@@ -226,6 +228,10 @@ order (`sendConcurrently` groups, confirmation barriers) and `next` continuation
 | `vault/update` | `vault` and at least one of `performanceFeeBps, managementFeeBps, depositCap, minDeposit, minWithdrawalShares, status, depositPaused, withdrawalPaused` | |
 | `vault/claim-fee` | `vault` | Mints the accrued manager fee shares to the manager. |
 | `vault/close` | `vault` | |
+| `escrow/create` | `vault, name, fundAmount?` | Creates a child vault: same authority and deposit mint, no depositors. `fundAmount` (deposit-mint base units) funds it in the same transaction. A confirmed outcome carries the new address as `created.child`. |
+| `escrow/fund`, `escrow/defund` | `vault, child, amount, mint?` | Moves `amount` into or out of the child. `mint` defaults to the deposit mint; another mint must be tracked by the sending vault, and the receiving vault's Jupiter strategy is created first when missing. |
+| `escrow/transfer` | `vault, source, destination, amount, mint?` | Between any two vaults of the family: `vault` or its child vaults. |
+| `escrow/close` | `vault, child, defundFirst?` | `defundFirst` returns every token and closes the child's Jupiter strategies in the same transaction. Close its LP positions, limit orders and Phoenix account first. |
 
 ### Phoenix onboarding
 

@@ -44,6 +44,11 @@ export const DIRECT_ACTIONS = {
   dlmmClose: "dlmm/close",
   dlmmLimitOrderPlace: "dlmm/limit-order/place",
   dlmmLimitOrderCancel: "dlmm/limit-order/cancel",
+  escrowCreate: "escrow/create",
+  escrowFund: "escrow/fund",
+  escrowDefund: "escrow/defund",
+  escrowTransfer: "escrow/transfer",
+  escrowClose: "escrow/close",
 } as const satisfies Record<string, DirectActionRequest["action"]>;
 
 type DirectActions = typeof DIRECT_ACTIONS;

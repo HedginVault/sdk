@@ -98,6 +98,8 @@ export type Operator = { delegate: PublicKey; permissions: number } | null;
 export const DELEGATE_JUPITER = 1;
 export const DELEGATE_METEORA_DLMM = 2;
 export const DELEGATE_PHOENIX = 4;
+/** Escrow transfers accept a delegate holding any group: no value leaves the vault family. */
+export const DELEGATE_ALL = DELEGATE_JUPITER | DELEGATE_METEORA_DLMM | DELEGATE_PHOENIX;
 const PERMISSION_LABELS: Record<number, string> = { 1: "Jupiter", 2: "Meteora DLMM", 4: "Phoenix" };
 
 /**

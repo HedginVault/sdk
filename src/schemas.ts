@@ -18,10 +18,19 @@ export const VaultSummarySchema = z.object({
   depositSymbol: z.string(),
   depositDecimals: z.number().int().nonnegative(),
   totalAssets: BaseUnits,
+  /** Requests settle only after the manager approves them. Absent from older servers. */
+  approvalRequired: z.boolean().optional(),
+  /** The parent vault on a child vault, null on a vault that takes deposits. Absent from older servers. */
+  parent: z.string().nullable().optional(),
+  childCount: z.number().int().nonnegative().optional(),
 });
 export type VaultSummary = z.infer<typeof VaultSummarySchema>;
 
-export const VaultsResponseSchema = z.object({ vaults: z.array(VaultSummarySchema) });
+export const VaultsResponseSchema = z.object({
+  vaults: z.array(VaultSummarySchema),
+  /** Child vaults of the listed vaults. Absent from older servers. */
+  children: z.array(VaultSummarySchema).optional(),
+});
 
 export const TokenInfoSchema = z.object({
   mint: z.string(),
@@ -216,6 +225,8 @@ export const VaultDetailSchema = VaultSummarySchema.extend({
   authority: z.string(),
   shareMint: z.string(),
   shareSupply: BaseUnits,
+  /** The share token's Metaplex symbol; null until its metadata is created. Absent from older servers. */
+  shareSymbol: z.string().nullable().optional(),
   idleBalance: BaseUnits,
   /** Non-deposit tokens outside any strategy. The server may omit this; absent means unknown, not empty. */
   unmanagedHoldings: z.array(z.object({ token: TokenInfoSchema, amount: BaseUnits })).optional(),
@@ -263,9 +274,17 @@ const requestFields = {
   epoch: U64String,
   /** Unix seconds. */
   createdTs: z.number().int(),
-  /** `resolvable` once a later NAV epoch is posted. */
-  state: z.enum(["pending", "resolvable"]),
+  /**
+   * `resolvable` once a later NAV epoch is posted. `frozen` once a newer epoch starts before its NAV lands:
+   * neither claimable nor cancellable until then.
+   */
+  state: z.enum(["pending", "resolvable", "frozen"]),
   cancellable: z.boolean(),
+  /**
+   * On a vault that requires approval, true until the manager approves this request's current amount; it
+   * cannot settle until then and stays cancellable. Absent from older servers.
+   */
+  awaitingApproval: z.boolean().optional(),
 };
 
 export const RequestQueueSchema = z.object({

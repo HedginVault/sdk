@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { NavHistoryPointSchema, PhoenixManagerSchema, RequestQueueSchema, StrategyHistoryItemSchema, StrategyListSchema, StrategySchema, VaultDetailSchema } from "../src/schemas";
+import {
+  NavHistoryPointSchema,
+  PhoenixManagerSchema,
+  RequestQueueSchema,
+  StrategyHistoryItemSchema,
+  StrategyListSchema,
+  StrategySchema,
+  VaultDetailSchema,
+  VaultsResponseSchema,
+} from "../src/schemas";
 import { navHistory, phoenixView, requestQueue, strategies, strategyHistory, vaultDetail } from "./fixtures";
 
 const viaJson = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
@@ -29,6 +38,26 @@ describe("read schemas", () => {
     expect(VaultDetailSchema.safeParse({ ...fromApp, unmanagedHoldings: null }).success).toBe(false);
   });
 
+  it("parses the current vault list with child vaults and keeps parent, childCount and approvalRequired", () => {
+    const summary = (address: string, parent: string | null, childCount: number) => ({
+      address, name: "Alpha", status: "normal", depositMint: "USDC", depositSymbol: "USDC", depositDecimals: 6, totalAssets: "2500000000",
+      approvalRequired: true, parent, childCount,
+    });
+    const fromApp = {
+      vaults: [{ ...summary("P", null, 1), chainName: "Alpha", showTradeHistory: true, pendingWithdrawalShares: "0" }],
+      children: [summary("C", "P", 0)],
+    };
+    expect(VaultsResponseSchema.parse(viaJson(fromApp))).toEqual({ vaults: [summary("P", null, 1)], children: [summary("C", "P", 0)] });
+    expect(VaultsResponseSchema.parse({ vaults: [] })).toEqual({ vaults: [] });
+    expect(VaultDetailSchema.parse(viaJson({ ...vaultDetail, shareSymbol: "hALPHA", parent: null, childCount: 0 }))).toMatchObject({ shareSymbol: "hALPHA" });
+  });
+
+  it("parses a request awaiting the manager's approval", () => {
+    const awaiting = { ...requestQueue, deposits: requestQueue.deposits.map((d) => ({ ...d, cancellable: true, awaitingApproval: true })) };
+    expect(RequestQueueSchema.parse(viaJson(awaiting))).toEqual(awaiting);
+    expect(RequestQueueSchema.safeParse({ ...awaiting, deposits: awaiting.deposits.map((d) => ({ ...d, awaitingApproval: "yes" })) }).success).toBe(false);
+  });
+
   it("parses NAV history with a null timestamp and rejects a decimal NAV", () => {
     expect(NavHistoryPointSchema.array().parse(viaJson(navHistory))).toEqual(navHistory);
     expect(NavHistoryPointSchema.safeParse({ ...navHistory[0], navPerShare: "1.02" }).success).toBe(false);
@@ -38,6 +67,11 @@ describe("read schemas", () => {
     expect(RequestQueueSchema.parse(viaJson(requestQueue))).toEqual(requestQueue);
     const bad = { ...requestQueue, deposits: [{ ...requestQueue.deposits[0], state: "settled" }] };
     expect(RequestQueueSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it("parses a frozen request, which the app returns once a newer epoch starts before its NAV", () => {
+    const frozen = { ...requestQueue, deposits: [{ ...requestQueue.deposits[0], state: "frozen", cancellable: false }] };
+    expect(RequestQueueSchema.parse(viaJson(frozen)).deposits[0]?.state).toBe("frozen");
   });
 
   it("parses strategy history with a realized loss and rejects a fractional one", () => {

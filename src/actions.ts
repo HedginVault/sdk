@@ -8,6 +8,26 @@ export type DlmmShape = "spot" | "curve" | "bidAsk";
 
 export type VaultStatus = "normal" | "paused" | "reduceOnly";
 
+/**
+ * The least a swap may return: the shown quote's output after its slippage, for the input it was
+ * quoted for. A build swapping a different input scales it, so it holds as a price floor.
+ */
+export interface MinOut {
+  /** Positive. */
+  inAmount: BaseUnitString;
+  minOutAmount: BaseUnitString;
+}
+
+/** Zap options shared by `dlmm/zap-out` and a zapping `dlmm/remove`. */
+interface ZapFloors {
+  /** The floor of the zap swap. */
+  minOut?: MinOut;
+  /** The floor of the follow-up into the deposit mint, for a pool without it. */
+  followUpMinOut?: MinOut;
+  /** Withdraw first and swap the returned non-deposit token after, in a transaction of its own, under `minOut`. */
+  separateSwap?: boolean;
+}
+
 /** Optional sub-range of an existing position: both ends inclusive, given together or not at all. */
 export type InclusiveBinSelection = { lowerBinId: number; upperBinId: number } | { lowerBinId?: never; upperBinId?: never };
 
@@ -31,6 +51,8 @@ export type ActionRequest =
       destinationMint: string;
       amount: BaseUnitString;
       slippageBps: number;
+      /** The least `destinationMint` the swap may return, from the quote the caller approved. A fresh quote below it fails with `QuoteMoved`. */
+      minOutAmount?: BaseUnitString;
     }
   | {
       action: "dlmm/open";
@@ -54,8 +76,21 @@ export type ActionRequest =
       shape: DlmmShape;
       maxActiveBinSlippage: number;
     } & InclusiveBinSelection)
-  /** With a bin selection, removes `bpsToRemove` only from those bins. */
-  | ({ action: "dlmm/remove"; vault: string; position: string; bpsToRemove: number; cursorBinId?: number } & InclusiveBinSelection)
+  /**
+   * With a bin selection, removes `bpsToRemove` only from those bins. With `slippageBps` it zaps: the
+   * other pool token is swapped into `outputMint` (a pool token or the deposit mint, by default the
+   * deposit mint) in the same transaction.
+   */
+  | ({
+      action: "dlmm/remove";
+      vault: string;
+      position: string;
+      bpsToRemove: number;
+      cursorBinId?: number;
+      slippageBps?: number;
+      outputMint?: string;
+    } & ZapFloors &
+      InclusiveBinSelection)
   /**
    * In one atomic transaction, removes all liquidity from the bins and re-adds that token there as Bid-Ask.
    * The range (both ends inclusive) must lie entirely above the active bin (token X) or below it (token Y);
@@ -71,8 +106,8 @@ export type ActionRequest =
       maxActiveBinSlippage: number;
     }
   | { action: "dlmm/claim-fee"; vault: string; position: string; cursorBinId?: number }
-  /** `outputMint` picks which pool token to end in. It defaults to the deposit mint. */
-  | { action: "dlmm/zap-out"; vault: string; position: string; slippageBps: number; cursorBinId?: number; outputMint?: string }
+  /** `outputMint` picks a pool token or the deposit mint to end in. It defaults to the deposit mint. */
+  | ({ action: "dlmm/zap-out"; vault: string; position: string; slippageBps: number; cursorBinId?: number; outputMint?: string } & ZapFloors)
   | { action: "strategy/close"; vault: string; strategy: string }
   /** Creates a DLMM position with no liquidity, plus any missing pair-token Jupiter strategies. */
   | {
@@ -171,6 +206,8 @@ export type ActionRequest =
       minDeposit: BaseUnitString;
       /** Share base units. */
       minWithdrawalShares: BaseUnitString;
+      /** Deposits and withdrawals settle only after the manager approves each one. */
+      approvalRequired?: boolean;
     }
   /** Changes only the fields given; at least one is required. Units as in `vault/initialize`. */
   | {
@@ -184,10 +221,51 @@ export type ActionRequest =
       status?: VaultStatus;
       depositPaused?: boolean;
       withdrawalPaused?: boolean;
+      approvalRequired?: boolean;
     }
   /** Mints the manager's accrued fee shares to the manager. */
   | { action: "vault/claim-fee"; vault: string }
-  | { action: "vault/close"; vault: string };
+  | { action: "vault/close"; vault: string }
+  /**
+   * On a vault that requires approval, lets `depositor`'s pending deposit settle. `amount` is the amount the
+   * manager reviewed; the program refuses with `ApprovedAmountMismatch` if the request changed since. Authority only.
+   */
+  | { action: "deposit/approve"; vault: string; depositor: string; amount: BaseUnitString }
+  /** Same as `deposit/approve` for `withdrawer`'s pending withdrawal, with the reviewed share base units. */
+  | { action: "withdrawal/approve"; vault: string; withdrawer: string; shares: BaseUnitString }
+  /** Refunds `depositor`'s pending deposit and closes the request. Authority only. */
+  | { action: "deposit/reject"; vault: string; depositor: string }
+  /** Returns `withdrawer`'s pending withdrawal shares and closes the request. Authority only. */
+  | { action: "withdrawal/reject"; vault: string; withdrawer: string }
+  /**
+   * Creates a child vault of `vault`, a vault that takes deposits: same authority and deposit mint, no
+   * depositors of its own. With `fundAmount` the same transaction moves that much deposit token into it.
+   * Authority only. The new address is the `Outcome`'s `created.child`.
+   */
+  | {
+      action: "escrow/create";
+      vault: string;
+      /** At most 32 UTF-8 bytes. */
+      name: string;
+      /** Deposit-mint base units, positive. */
+      fundAmount?: BaseUnitString;
+    }
+  /**
+   * Moves `amount` from `vault` into its child vault. `mint` defaults to the deposit mint; another mint must be
+   * tracked by the sending vault, and the receiving vault's Jupiter strategy is created first when missing.
+   * Any live delegate of `vault` may run it.
+   */
+  | { action: "escrow/fund"; vault: string; child: string; amount: BaseUnitString; mint?: string }
+  /** Moves `amount` from the child vault back into `vault`. Same rules as `escrow/fund`. */
+  | { action: "escrow/defund"; vault: string; child: string; amount: BaseUnitString; mint?: string }
+  /** Moves `amount` between any two vaults of `vault`'s family: `vault` itself or its child vaults. */
+  | { action: "escrow/transfer"; vault: string; source: string; destination: string; amount: BaseUnitString; mint?: string }
+  /**
+   * Closes a child vault. With `defundFirst` the same transaction first returns every token it holds to `vault`
+   * and closes its Jupiter strategies. Its LP positions, limit orders and Phoenix account must be closed first.
+   * Authority only.
+   */
+  | { action: "escrow/close"; vault: string; child: string; defundFirst?: boolean };
 
 export type BuildAction = ActionRequest["action"];
 

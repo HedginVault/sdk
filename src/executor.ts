@@ -19,6 +19,8 @@ export type Progress =
 /** Addresses an action created, e.g. the new vault from `vault/initialize` or the position from `dlmm/initialize`. */
 export interface Created {
   vault?: string;
+  /** The child vault from `escrow/create`. */
+  child?: string;
   position?: string;
 }
 
@@ -114,6 +116,7 @@ async function run(
       txs = inspect(steps);
       for (const step of steps) {
         if (typeof step.vault === "string") created.vault = step.vault;
+        if (typeof step.child === "string") created.child = step.child;
         if (typeof step.position === "string") created.position = step.position;
       }
     } catch (error) {

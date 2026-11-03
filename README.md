@@ -85,16 +85,16 @@ order (`sendConcurrently` groups, confirmation barriers) and `next` continuation
 
 | Action | Body besides `action` | Notes |
 | --- | --- | --- |
-| `jupiter/swap` | `vault, sourceMint, destinationMint, amount, slippageBps` | `amount` in source-mint base units. |
+| `jupiter/swap` | `vault, sourceMint, destinationMint, amount, slippageBps, minOutAmount?` | `amount` in source-mint base units. `minOutAmount` is the least `destinationMint` you accept, from the quote you approved; a fresh quote below it fails with `QuoteMoved`. |
 | `jupiter/sweep` | `vault, mint, slippageBps` | One transaction: sells the vault's whole `mint` balance to the deposit mint, then closes `mint`'s Jupiter strategy. 409 while an open DLMM position or limit order uses `mint`. |
 | `jupiter/initialize` | `vault, targetMint` | Opens the strategy needed to hold `targetMint`. |
 | `dlmm/initialize` | `vault, lbPair`, and `width` or `lowerBinId` + `upperBinId` | Empty position, returned as `created.position`. `width` 1..70; `upperBinId` exclusive. |
 | `dlmm/open` | `vault, lbPair, lowerBinId, upperBinId, amountX, amountY, shape, maxActiveBinSlippage` | `upperBinId` exclusive. |
 | `dlmm/add` | `vault, position, amountX, amountY, shape, maxActiveBinSlippage`, optional `lowerBinId` + `upperBinId` | Range both ends inclusive, given together, inside the position; adds only to those bins. |
-| `dlmm/remove` | `vault, position, bpsToRemove, cursorBinId?`, optional `lowerBinId` + `upperBinId` | Range as in `dlmm/add`; removes `bpsToRemove` only from those bins. |
+| `dlmm/remove` | `vault, position, bpsToRemove, cursorBinId?`, optional `lowerBinId` + `upperBinId`, zap options | Range as in `dlmm/add`; removes `bpsToRemove` only from those bins. With `slippageBps` it zaps: the other pool token is swapped into `outputMint` (a pool token or the deposit mint, default the deposit mint). Zap options as in `dlmm/zap-out`. |
 | `dlmm/flip` | `vault, position, lowerBinId, upperBinId, activeBinId, maxActiveBinSlippage` | One atomic transaction: removes all of the bins (both ends inclusive) and re-adds that token there as Bid-Ask. The range must lie strictly above (token X) or below (token Y) `activeBinId`; build it with `flipRange`. Does not claim fees. |
 | `dlmm/claim-fee` | `vault, position, cursorBinId?` | |
-| `dlmm/zap-out` | `vault, position, slippageBps, cursorBinId?` | When eligible, the last transaction continues to `jupiter/sweep` for the leftover non-deposit token. |
+| `dlmm/zap-out` | `vault, position, slippageBps, cursorBinId?, outputMint?, minOut?, followUpMinOut?, separateSwap?` | `outputMint` is a pool token or the deposit mint (default). `minOut` and `followUpMinOut` are `{ inAmount, minOutAmount }` price floors for the zap swap and the follow-up into the deposit mint. `separateSwap` withdraws first and swaps in a transaction of its own. When eligible, the last transaction continues to `jupiter/sweep` for the leftover non-deposit token. |
 | `dlmm/close` | `vault, position` | Removes everything, claims fees, closes the strategy. |
 | `dlmm/limit-order/place` | `vault, lbPair, side, bins` | `side` `ask` sells token X in bins above the active bin, `bid` sells token Y below it. `bins` is `[{ binId, amount }]`, strictly increasing, amounts in the sold token. May build two transactions. |
 | `dlmm/limit-order/cancel` | `vault, limitOrder, bins?` | Without `bins`, cancels every bin and closes the strategy, paying unfilled amounts, proceeds, and fees back to the vault. |
@@ -105,10 +105,17 @@ order (`sendConcurrently` groups, confirmation barriers) and `next` continuation
 | `phoenix/order` | `vault, symbol, side, size, reduceOnly, order, tpSl?, disarmTpSl?` | `size` is a decimal of the base asset ("0.5"). `order` is `{ type: "market", slippageBps }` (1..2000) or `{ type: "limit", price, postOnly }` (USD decimal). `tpSl` (`{ takeProfit, stopLoss }`, USD decimals or `null`) arms a bracket on the resulting position; market orders only, not reduce-only. `disarmTpSl` cancels the armed bracket, for a full close. |
 | `phoenix/cancel` | `vault, symbol, orders` | `"all"`, or 1..20 `{ priceInTicks, orderSequenceNumber }` from `getPhoenix().openOrders`. |
 | `phoenix/sweep` | `vault` | Unwraps a queued Phoenix withdrawal into USDC. |
-| `vault/initialize` | `name, depositMint, performanceFeeBps, managementFeeBps, depositCap, minDeposit, minWithdrawalShares` | No `vault`. Needs a key not limited to specific vaults. A confirmed outcome carries the new address as `created.vault`. |
-| `vault/update` | `vault` and at least one of `performanceFeeBps, managementFeeBps, depositCap, minDeposit, minWithdrawalShares, status, depositPaused, withdrawalPaused` | |
+| `vault/initialize` | `name, depositMint, performanceFeeBps, managementFeeBps, depositCap, minDeposit, minWithdrawalShares, approvalRequired?` | No `vault`. Needs a key not limited to specific vaults. A confirmed outcome carries the new address as `created.vault`. |
+| `vault/update` | `vault` and at least one of `performanceFeeBps, managementFeeBps, depositCap, minDeposit, minWithdrawalShares, status, depositPaused, withdrawalPaused, approvalRequired` | `approvalRequired` makes deposits and withdrawals wait for `deposit/approve` or `withdrawal/approve`. |
 | `vault/claim-fee` | `vault` | Mints the accrued manager fee shares to the manager. |
 | `vault/close` | `vault` | |
+| `deposit/approve` | `vault, depositor, amount` | Authority only. `amount` is the request amount you reviewed; the program refuses with `ApprovedAmountMismatch` if it changed. |
+| `withdrawal/approve` | `vault, withdrawer, shares` | Authority only. `shares` as reviewed, as above. |
+| `deposit/reject`, `withdrawal/reject` | `vault, depositor` or `vault, withdrawer` | Authority only. Refunds the request and closes it. |
+| `escrow/create` | `vault, name, fundAmount?` | Authority only. Creates a child vault: same authority and deposit mint, no depositors. `fundAmount` (deposit-mint base units) funds it in the same transaction. A confirmed outcome carries the new address as `created.child`. |
+| `escrow/fund`, `escrow/defund` | `vault, child, amount, mint?` | The authority or any live delegate of `vault`. Moves `amount` into or out of the child. `mint` defaults to the deposit mint; another mint must be tracked by the sending vault, and the receiving vault's Jupiter strategy is created first when missing. |
+| `escrow/transfer` | `vault, source, destination, amount, mint?` | As `escrow/fund`, between any two vaults of the family: `vault` or its child vaults. |
+| `escrow/close` | `vault, child, defundFirst?` | Authority only. `defundFirst` returns every token and closes the child's Jupiter strategies in the same transaction. Close its LP positions, limit orders and Phoenix account first. |
 
 ### Phoenix onboarding
 

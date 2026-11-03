@@ -104,6 +104,13 @@ describe("execute", () => {
     expect(outcome).toEqual({ kind: "confirmed", signatures: outcome.signatures, created: { vault } });
   });
 
+  it("reports the child vault a confirmed escrow/create created", async () => {
+    const child = Keypair.generate().publicKey.toBase58();
+    const { api } = fakeApi([[{ ...step(), child }]]);
+    const outcome = await run({ action: "escrow/create", body: { vault: "V", name: "Desk" } }, api);
+    expect(outcome).toEqual({ kind: "confirmed", signatures: outcome.signatures, created: { child } });
+  });
+
   it("reports no created addresses for a plain swap", async () => {
     const { api } = fakeApi([[step()]]);
     const outcome = await run({ action: "jupiter/swap", body: { vault: "V" } }, api);

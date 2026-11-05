@@ -12,7 +12,7 @@ import {
 } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS,
+  DEFAULT_MAX_PRIORITY_FEE_LAMPORTS,
   PHOENIX_PROGRAM_ID,
   inspectPhoenixOnboardTransaction,
   inspectTransaction,
@@ -37,7 +37,7 @@ function build(instructions: TransactionInstruction[], payer = manager.publicKey
   return Buffer.from(tx.serialize()).toString("base64");
 }
 
-const policy = { manager: manager.publicKey, programId: PROGRAM_ID, maxComputeUnitPriceMicroLamports: DEFAULT_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS };
+const policy = { manager: manager.publicKey, programId: PROGRAM_ID, maxPriorityFeeLamports: DEFAULT_MAX_PRIORITY_FEE_LAMPORTS };
 const sign = async (tx: VersionedTransaction) => Buffer.from((await keypairSigner(manager).signTransaction(tx)).serialize()).toString("base64");
 
 describe("inspectTransaction", () => {
@@ -113,9 +113,27 @@ describe("inspectTransaction", () => {
     expect(() => inspectTransaction(build([vaultIx(Keypair.generate().publicKey)]), policy)).toThrow(/also needs a signature/);
   });
 
-  it("refuses a priority fee above the cap", () => {
-    const base64 = build([ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_001 }), vaultIx()]);
-    expect(() => inspectTransaction(base64, policy)).toThrow(/above the cap/);
+  it("accepts a high price on a small limit when the total fee is inside the budget", () => {
+    // 102,853 × 400,000 / 1e6 = 41,142 lamports; the old per-CU cap refused this swap.
+    const base64 = build([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 102_853 }), vaultIx()]);
+    expect(inspectTransaction(base64, policy).message.compiledInstructions).toHaveLength(3);
+  });
+
+  it("accepts a priority fee exactly at the cap and refuses one lamport over", () => {
+    const priced = (microLamports: number) => build([ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports }), vaultIx()]);
+    expect(inspectTransaction(priced(1_000_000), policy).message.compiledInstructions).toHaveLength(3);
+    expect(() => inspectTransaction(priced(1_000_001), policy)).toThrow("Priority fee 1000001 lamports is above the 1000000 lamport cap");
+  });
+
+  it("reads a missing compute unit limit as the 1.4M maximum", () => {
+    // 714,286 × 1,400,000 / 1e6 rounds up to 1,000,001 lamports; a 400,000 limit would make it 285,715.
+    const base64 = build([ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 714_286 }), vaultIx()]);
+    expect(() => inspectTransaction(base64, policy)).toThrow("Priority fee 1000001 lamports is above the 1000000 lamport cap");
+  });
+
+  it("still refuses a price per compute unit above a cap the caller sets", () => {
+    const base64 = build([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 102_853 }), vaultIx()]);
+    expect(() => inspectTransaction(base64, { ...policy, maxComputeUnitPriceMicroLamports: 100_000n })).toThrow("Priority fee 102853 microLamports/CU is above the cap");
   });
 
   it("refuses bytes that are not a transaction", () => {

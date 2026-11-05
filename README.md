@@ -158,7 +158,7 @@ Before signing, every transaction in a build must:
 - be a v0 transaction paid by the signer's key;
 - already carry every other required signature (for example a new DLMM position);
 - call only the Hedge Vault program, ComputeBudget, Associated Token Account, Meteora DLMM, or Jupiter at the top level;
-- set a priority fee at or below 100,000 microLamports per CU (`maxComputeUnitPriceMicroLamports`).
+- set a priority fee (price × compute unit limit) at or below 0.001 SOL (`maxPriorityFeeLamports`), the app's automatic-fee budget; a missing limit counts as 1.4M CU.
 
 `onboardPhoenix` uses a separate, narrower policy. The transaction must be v0, paid by the
 signer's key, and call only the Phoenix program (`EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih`)

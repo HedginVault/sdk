@@ -9,7 +9,10 @@ export const HEDGE_VAULT_PROGRAM_ID = "r2ahBQ6gbPCJ9FxBymYcXuwXi8NmenRry7SE7QR7F
 export const PHOENIX_PROGRAM_ID = "EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih";
 
 const COMPUTE_BUDGET_PROGRAM = "ComputeBudget111111111111111111111111111111";
+const SET_COMPUTE_UNIT_LIMIT = 2;
 const SET_COMPUTE_UNIT_PRICE = 3;
+/** The most compute units a transaction can request; assumed when a priced transaction sets no limit. */
+const MAX_COMPUTE_UNIT_LIMIT = 1_400_000n;
 
 /**
  * Pump.fun AMM `init_user_volume_accumulator`, which the app adds before a Jupiter route through
@@ -31,8 +34,14 @@ const BUILDER_PROGRAMS = [
   "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4", // Jupiter: setTokenLedger in zap-out
 ];
 
-/** The app caps priority fees at 10,000 microLamports per CU; allow headroom, not an open checkbook. */
-export const DEFAULT_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS = 100_000n;
+/**
+ * The app's automatic-fee budget: 0.001 SOL per transaction. It prices from Helius's estimate but
+ * never lets price × compute unit limit exceed this, so a builder transaction always fits.
+ */
+export const DEFAULT_MAX_PRIORITY_FEE_LAMPORTS = 1_000_000n;
+
+/** The app's ultra ceiling on the price per compute unit, for callers that also cap the price itself. */
+export const DEFAULT_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS = 500_000n;
 
 /**
  * Anything that can sign as the vault manager: a local keypair, a hardware wallet, or a
@@ -70,7 +79,10 @@ export function keypairFromFile(path: string): Keypair {
 export interface SigningPolicy {
   manager: PublicKey;
   programId: string;
-  maxComputeUnitPriceMicroLamports: bigint;
+  /** Refuse when the priority fee, price × compute unit limit rounded up to lamports, exceeds this. */
+  maxPriorityFeeLamports: bigint;
+  /** Also refuse a price per compute unit above this; unset means only the total is capped. */
+  maxComputeUnitPriceMicroLamports?: bigint;
 }
 
 function decodeForSigner(base64: string, manager: PublicKey): VersionedTransaction {
@@ -88,22 +100,26 @@ function decodeForSigner(base64: string, manager: PublicKey): VersionedTransacti
   return tx;
 }
 
-function checkPrograms(
-  tx: VersionedTransaction,
-  allowed: (program: string, data: Uint8Array) => boolean,
-  maxComputeUnitPriceMicroLamports: bigint,
-): void {
+function checkPrograms(tx: VersionedTransaction, allowed: (program: string, data: Uint8Array) => boolean, policy: SigningPolicy): void {
   const { staticAccountKeys, compiledInstructions } = tx.message;
+  let limit: bigint | undefined;
+  let price: bigint | undefined;
   for (const instruction of compiledInstructions) {
     // v0 requires invoked programs to be static keys; an index past them would be malformed.
     const program = staticAccountKeys[instruction.programIdIndex]?.toBase58();
     if (!program || !allowed(program, instruction.data)) throw new UnsafeTransactionError(`Unexpected program ${program ?? "outside static keys"}`);
-    if (program === COMPUTE_BUDGET_PROGRAM && instruction.data[0] === SET_COMPUTE_UNIT_PRICE) {
-      const price = Buffer.from(instruction.data).readBigUInt64LE(1);
-      if (price > maxComputeUnitPriceMicroLamports) {
-        throw new UnsafeTransactionError(`Priority fee ${price} microLamports/CU is above the cap`);
-      }
-    }
+    if (program !== COMPUTE_BUDGET_PROGRAM) continue;
+    if (instruction.data[0] === SET_COMPUTE_UNIT_LIMIT) limit = BigInt(Buffer.from(instruction.data).readUInt32LE(1));
+    if (instruction.data[0] === SET_COMPUTE_UNIT_PRICE) price = Buffer.from(instruction.data).readBigUInt64LE(1);
+  }
+  if (price === undefined) return;
+  if (policy.maxComputeUnitPriceMicroLamports !== undefined && price > policy.maxComputeUnitPriceMicroLamports) {
+    throw new UnsafeTransactionError(`Priority fee ${price} microLamports/CU is above the cap`);
+  }
+  // The runtime charges price × limit microLamports, rounded up. A missing limit is read at the maximum so it cannot hide a fee.
+  const lamports = (price * (limit ?? MAX_COMPUTE_UNIT_LIMIT) + 999_999n) / 1_000_000n;
+  if (lamports > policy.maxPriorityFeeLamports) {
+    throw new UnsafeTransactionError(`Priority fee ${lamports} lamports is above the ${policy.maxPriorityFeeLamports} lamport cap`);
   }
 }
 
@@ -120,7 +136,7 @@ export function inspectTransaction(base64: string, policy: SigningPolicy): Versi
     program === policy.programId ||
     BUILDER_PROGRAMS.includes(program) ||
     (program === PUMP_AMM_PROGRAM && Buffer.from(data).equals(PUMP_AMM_INIT_USER_VOLUME_ACCUMULATOR));
-  checkPrograms(tx, allowed, policy.maxComputeUnitPriceMicroLamports);
+  checkPrograms(tx, allowed, policy);
   return tx;
 }
 
@@ -132,6 +148,6 @@ export function inspectTransaction(base64: string, policy: SigningPolicy): Versi
 export function inspectPhoenixOnboardTransaction(base64: string, policy: SigningPolicy): VersionedTransaction {
   const tx = decodeForSigner(base64, policy.manager);
   if (tx.message.compiledInstructions.length === 0) throw new UnsafeTransactionError("Onboarding transaction has no instructions");
-  checkPrograms(tx, (program) => program === PHOENIX_PROGRAM_ID, policy.maxComputeUnitPriceMicroLamports);
+  checkPrograms(tx, (program) => program === PHOENIX_PROGRAM_ID, policy);
   return tx;
 }

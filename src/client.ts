@@ -36,7 +36,7 @@ import {
   VaultsResponseSchema,
   vaultData,
 } from "./schemas";
-import { DEFAULT_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS, HEDGE_VAULT_PROGRAM_ID, type TransactionSigner } from "./signer";
+import { DEFAULT_MAX_PRIORITY_FEE_LAMPORTS, HEDGE_VAULT_PROGRAM_ID, type TransactionSigner } from "./signer";
 
 const READ_TIMEOUT_MS = 10_000;
 // Builders simulate on chain and can call Jupiter, so they get more time.
@@ -49,7 +49,9 @@ export interface HedgeClientOptions {
   baseUrl?: string;
   /** Override only for a non-production deployment of the program. */
   programId?: string;
-  /** Refuse transactions whose priority fee exceeds this. */
+  /** Refuse transactions whose priority fee exceeds this; defaults to the app's 0.001 SOL budget. */
+  maxPriorityFeeLamports?: bigint;
+  /** Also refuse a price per compute unit above this; unset by default. */
   maxComputeUnitPriceMicroLamports?: bigint;
   fetch?: typeof fetch;
 }
@@ -106,7 +108,7 @@ export function createHedgeClient(options: HedgeClientOptions): HedgeClient {
   const fetchImpl = options.fetch ?? fetch;
   const baseUrl = normalizeBaseUrl(options.baseUrl ?? "https://hedgin.xyz");
   const programId = options.programId ?? HEDGE_VAULT_PROGRAM_ID;
-  const maxComputeUnitPriceMicroLamports = options.maxComputeUnitPriceMicroLamports ?? DEFAULT_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS;
+  const maxPriorityFeeLamports = options.maxPriorityFeeLamports ?? DEFAULT_MAX_PRIORITY_FEE_LAMPORTS;
 
   async function call<T>(path: string, schema: z.ZodType<T, z.ZodTypeDef, unknown>, requestBody?: Record<string, unknown>): Promise<T> {
     const response = await fetchImpl(`${baseUrl}/api/external/v1${path}`, {
@@ -131,7 +133,12 @@ export function createHedgeClient(options: HedgeClientOptions): HedgeClient {
   }
 
   const vaultPath = (vault: string, leaf?: string) => `/vaults/${encodeURIComponent(vault)}${leaf === undefined ? "" : `/${leaf}`}`;
-  const policy = (signer: TransactionSigner) => ({ manager: signer.publicKey, programId, maxComputeUnitPriceMicroLamports });
+  const policy = (signer: TransactionSigner) => ({
+    manager: signer.publicKey,
+    programId,
+    maxPriorityFeeLamports,
+    maxComputeUnitPriceMicroLamports: options.maxComputeUnitPriceMicroLamports,
+  });
 
   const client: HedgeClient = {
     listVaults: async () => (await call("/vaults", VaultsResponseSchema)).vaults,

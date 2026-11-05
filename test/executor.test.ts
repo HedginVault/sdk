@@ -4,11 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../src/errors";
 import { type ExecutionTransport, type Progress, executeBuild, executePhoenixOnboard, groupSteps } from "../src/executor";
 import type { BuiltStep, TransactionStatus } from "../src/schemas";
-import { DEFAULT_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS, keypairSigner } from "../src/signer";
+import { DEFAULT_MAX_PRIORITY_FEE_LAMPORTS, keypairSigner } from "../src/signer";
 
 const PROGRAM_ID = "r2ahBQ6gbPCJ9FxBymYcXuwXi8NmenRry7SE7QR7FAt";
 const manager = Keypair.generate();
-const policy = { manager: manager.publicKey, programId: PROGRAM_ID, maxComputeUnitPriceMicroLamports: DEFAULT_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS };
+const policy = { manager: manager.publicKey, programId: PROGRAM_ID, maxPriorityFeeLamports: DEFAULT_MAX_PRIORITY_FEE_LAMPORTS };
 const signer = keypairSigner(manager);
 let blockhashSeed = 1;
 

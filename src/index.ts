@@ -16,6 +16,7 @@ export { type ExecuteOptions, type Created, type ExecutionTransport, type Outcom
 export * from "./schemas";
 export {
   DEFAULT_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS,
+  DEFAULT_MAX_PRIORITY_FEE_LAMPORTS,
   HEDGE_VAULT_PROGRAM_ID,
   PHOENIX_PROGRAM_ID,
   type SigningPolicy,

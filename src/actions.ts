@@ -20,6 +20,8 @@ export interface MinOut {
 
 /** Zap options shared by `dlmm/zap-out` and a zapping `dlmm/remove`. */
 interface ZapFloors {
+  /** Refuses a Jupiter quote above this price impact in bps; the API defaults to 1000 and caps at 2000. */
+  maxPriceImpactBps?: number;
   /** The floor of the zap swap. */
   minOut?: MinOut;
   /** The floor of the follow-up into the deposit mint, for a pool without it. */
@@ -51,6 +53,7 @@ export type ActionRequest =
       destinationMint: string;
       amount: BaseUnitString;
       slippageBps: number;
+      maxPriceImpactBps?: number;
       /** The least `destinationMint` the swap may return, from the quote the caller approved. A fresh quote below it fails with `QuoteMoved`. */
       minOutAmount?: BaseUnitString;
     }
@@ -65,6 +68,7 @@ export type ActionRequest =
       amountY: BaseUnitString;
       shape: DlmmShape;
       maxActiveBinSlippage: number;
+      maxPriceImpactBps?: number;
     }
   /** With a bin selection, adds only to those bins. */
   | ({
@@ -135,7 +139,7 @@ export type ActionRequest =
    * deposit mint and closes that mint's Jupiter strategy. Refused while an open DLMM position or limit
    * order uses `mint`.
    */
-  | { action: "jupiter/sweep"; vault: string; mint: string; slippageBps: number }
+  | { action: "jupiter/sweep"; vault: string; mint: string; slippageBps: number; maxPriceImpactBps?: number }
   /** Opens the vault's Jupiter strategy for `targetMint`, required before holding that token. */
   | { action: "jupiter/initialize"; vault: string; targetMint: string }
   /** Records the vault's Phoenix strategy. Then `onboardPhoenix` registers the trader with Phoenix. */

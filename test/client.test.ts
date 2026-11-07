@@ -177,6 +177,32 @@ describe("execute", () => {
     expect(outcome.kind).toBe("refused");
     expect(requests).toHaveLength(1);
   });
+
+  describe("maxPriceImpactBps", () => {
+    const buildBody = async (opts: { maxPriceImpactBps?: number }, action: string, body: Record<string, unknown>) => {
+      const { fetch, requests } = writeApi(unsignedSwap());
+      await createHedgeClient({ apiKey: "k", fetch, ...opts }).build(action, body).catch(() => undefined);
+      return requests[0]?.body as Record<string, unknown>;
+    };
+
+    it("adds the client option to a swap-capable build body", async () => {
+      expect(await buildBody({ maxPriceImpactBps: 300 }, "jupiter/swap", { ...swap })).toMatchObject({ slippageBps: 50, maxPriceImpactBps: 300 });
+    });
+    it("lets a per-action value override the client option", async () => {
+      expect(await buildBody({ maxPriceImpactBps: 300 }, "jupiter/swap", { ...swap, maxPriceImpactBps: 100 })).toMatchObject({ maxPriceImpactBps: 100 });
+    });
+    it("leaves the body unchanged when neither is set", async () => {
+      expect(await buildBody({}, "jupiter/swap", { ...swap })).not.toHaveProperty("maxPriceImpactBps");
+    });
+    it("never adds it to other actions", async () => {
+      expect(await buildBody({ maxPriceImpactBps: 300 }, "vault/update", { vault: VAULT })).not.toHaveProperty("maxPriceImpactBps");
+    });
+    it("carries it on the execute path", async () => {
+      const { fetch, requests } = writeApi(unsignedSwap());
+      await createHedgeClient({ apiKey: "k", fetch, maxPriceImpactBps: 300 }).execute(swap, keypairSigner(manager));
+      expect(requests[0]?.body).toMatchObject({ maxPriceImpactBps: 300 });
+    });
+  });
 });
 
 describe("vault reads", () => {

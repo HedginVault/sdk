@@ -41,6 +41,7 @@ import { DEFAULT_MAX_PRIORITY_FEE_LAMPORTS, HEDGE_VAULT_PROGRAM_ID, type Transac
 const READ_TIMEOUT_MS = 10_000;
 // Builders simulate on chain and can call Jupiter, so they get more time.
 const WRITE_TIMEOUT_MS = 30_000;
+const SWAP_CAPABLE = new Set<string>(["jupiter/swap", "jupiter/sweep", "dlmm/open", "dlmm/remove", "dlmm/zap-out", "dlmm/zap-out/swap"]);
 
 export interface HedgeClientOptions {
   /** `hv1_<id>_<secret>` from the Hedgin admin dashboard. */
@@ -53,6 +54,8 @@ export interface HedgeClientOptions {
   maxPriorityFeeLamports?: bigint;
   /** Also refuse a price per compute unit above this; unset by default. */
   maxComputeUnitPriceMicroLamports?: bigint;
+  /** Refuse a Jupiter quote above this price impact on every swap-capable action; the API defaults to 1000 and caps at 2000. */
+  maxPriceImpactBps?: number;
   fetch?: typeof fetch;
 }
 
@@ -167,7 +170,11 @@ export function createHedgeClient(options: HedgeClientOptions): HedgeClient {
     getPool: async (vault, lbPair) =>
       (await call(`/dlmm/pools/${encodeURIComponent(lbPair)}?${new URLSearchParams({ vault })}`, vaultData(PoolInfoSchema))).data,
     build: async (action, body) => {
-      const { result } = await call(`/transactions/${action}`, BuildResponseSchema, body);
+      const withImpact =
+        SWAP_CAPABLE.has(action) && options.maxPriceImpactBps !== undefined && !Object.hasOwn(body, "maxPriceImpactBps")
+          ? { ...body, maxPriceImpactBps: options.maxPriceImpactBps }
+          : body;
+      const { result } = await call(`/transactions/${action}`, BuildResponseSchema, withImpact);
       return Array.isArray(result) ? result : [result];
     },
     send: (transaction, ticket) => call("/transactions/send", SendResponseSchema, { transaction, ticket }),

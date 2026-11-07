@@ -1,0 +1,120 @@
+import { BN } from "@coral-xyz/anchor";
+import { type Connection, PublicKey, type Transaction } from "@solana/web3.js";
+import { type ChainContext, type VaultPosition, hedgeProgram, readPosition, readVaultState, readVaults } from "./chain/reads";
+import { type DepositorRequest, buildDepositorTransaction } from "./chain/requests";
+import type { VaultAccount } from "./chain/decode";
+import { ApiError } from "./errors";
+import type { VaultDetail, VaultSummary } from "./schemas";
+import { DEFAULT_MAX_PRIORITY_FEE_LAMPORTS, HEDGE_VAULT_PROGRAM_ID } from "./signer";
+
+export type { RequestState, RequestView, VaultPosition } from "./chain/reads";
+
+export interface HedgeVaultOptions {
+  /** Override only for a non-production deployment of the program. */
+  programId?: PublicKey;
+  /** Used for Jupiter token symbols. A failed lookup falls back to a short mint symbol. */
+  fetch?: typeof fetch;
+  /** Sends Jupiter lookups to api.jup.ag with this key instead of the keyless lite-api.jup.ag. */
+  jupiterApiKey?: string;
+  /** Most a built transaction may pay in priority fee, price × compute unit limit. Defaults to 0.001 SOL. */
+  maxPriorityFeeLamports?: bigint;
+}
+
+/** BN at the boundary, bigint inside; the request check then refuses anything that is not a positive u64. */
+function baseUnits(value: BN, field: string): bigint {
+  if (!BN.isBN(value)) throw new ApiError(400, "Validation", `${field} must be a BN in base units`);
+  return BigInt(value.toString());
+}
+
+function context(connection: Connection, opt: HedgeVaultOptions): ChainContext {
+  const programId = opt.programId ?? new PublicKey(HEDGE_VAULT_PROGRAM_ID);
+  return { connection, programId, fetch: opt.fetch ?? fetch, jupiterApiKey: opt.jupiterApiKey, program: hedgeProgram(connection, programId) };
+}
+
+/**
+ * One Hedge Vault, read from chain through your own RPC. No Hedgin server or API key is involved. Every action returns
+ * an unsigned, simulated, checked `Transaction` paid by `user`; send it with `sendAndConfirmTransaction` or your
+ * wallet adapter. The SDK never signs or sends.
+ */
+export class HedgeVault {
+  private constructor(
+    private readonly ctx: ChainContext,
+    /** The vault address. */
+    readonly pubkey: PublicKey,
+    /** The vault as of the last `create` or `refetchStates`. */
+    public state: VaultDetail,
+    private account: VaultAccount,
+    private readonly tokenProgram: PublicKey,
+    private readonly maxPriorityFeeLamports: bigint,
+  ) {}
+
+  /** Loads a vault. Throws `ApiError` 404 `NotFound` for an address that is not a vault of the program. */
+  static async create(connection: Connection, vault: PublicKey, opt: HedgeVaultOptions = {}): Promise<HedgeVault> {
+    const ctx = context(connection, opt);
+    const { detail, account, tokenProgram } = await readVaultState(ctx, vault);
+    return new HedgeVault(ctx, vault, detail, account, tokenProgram, opt.maxPriorityFeeLamports ?? DEFAULT_MAX_PRIORITY_FEE_LAMPORTS);
+  }
+
+  /** Every vault that takes deposits, sorted by id. Child vaults are left out. Uses `getProgramAccounts`. */
+  static getAll(connection: Connection, opt: HedgeVaultOptions = {}): Promise<VaultSummary[]> {
+    return readVaults(context(connection, opt));
+  }
+
+  /** Re-reads the vault into `state`. */
+  async refetchStates(): Promise<void> {
+    const { detail, account } = await readVaultState(this.ctx, this.pubkey);
+    this.state = detail;
+    this.account = account;
+  }
+
+  /** The user's shares, their value at the last NAV, and any open deposit or withdrawal request. */
+  async getPositionByUser(user: PublicKey): Promise<VaultPosition> {
+    const { account, position } = await readPosition(this.ctx, this.pubkey, user);
+    this.account = account;
+    return position;
+  }
+
+  /** Queues a deposit of `amount` deposit-mint base units. A SOL vault wraps whatever native SOL the user's wSOL account is short by. */
+  async deposit({ user, amount }: { user: PublicKey; amount: BN }): Promise<Transaction> {
+    return this.build(user, { action: "deposit/create", vault: this.pubkey, amount: baseUnits(amount, "amount") });
+  }
+
+  /** Refunds the user's open deposit request. */
+  async cancelDeposit({ user }: { user: PublicKey }): Promise<Transaction> {
+    return this.build(user, { action: "deposit/cancel", vault: this.pubkey });
+  }
+
+  /**
+   * Settles a resolvable deposit into shares. The keeper does this on its own after each NAV; this pays for it sooner.
+   * `depositor` defaults to `user`.
+   */
+  async resolveDeposit({ user, depositor }: { user: PublicKey; depositor?: PublicKey }): Promise<Transaction> {
+    return this.build(user, { action: "deposit/resolve", vault: this.pubkey, depositor });
+  }
+
+  /** Queues a withdrawal of `shares` share base units. */
+  async withdraw({ user, shares }: { user: PublicKey; shares: BN }): Promise<Transaction> {
+    return this.build(user, { action: "withdrawal/create", vault: this.pubkey, shares: baseUnits(shares, "shares") });
+  }
+
+  /** Returns the user's escrowed shares. */
+  async cancelWithdrawal({ user }: { user: PublicKey }): Promise<Transaction> {
+    return this.build(user, { action: "withdrawal/cancel", vault: this.pubkey });
+  }
+
+  /**
+   * Pays out a resolvable withdrawal; a SOL vault pays native SOL. The keeper does this on its own after each NAV; this
+   * pays for it sooner. `withdrawer` defaults to `user`.
+   */
+  async resolveWithdrawal({ user, withdrawer }: { user: PublicKey; withdrawer?: PublicKey }): Promise<Transaction> {
+    return this.build(user, { action: "withdrawal/resolve", vault: this.pubkey, withdrawer });
+  }
+
+  private async build(user: PublicKey, request: DepositorRequest): Promise<Transaction> {
+    // UX only: the program refuses anyone else with VaultInSelection.
+    if (request.action === "deposit/create" && this.account.selection !== 0 && !this.account.authority.equals(user))
+      throw new ApiError(403, "VaultInSelection", "This vault is in selection. Only its manager can deposit.");
+    const vault = { key: this.pubkey, account: this.account, tokenProgram: this.tokenProgram };
+    return buildDepositorTransaction(this.ctx, vault, request, user, this.maxPriorityFeeLamports);
+  }
+}

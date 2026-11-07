@@ -23,6 +23,8 @@ export const VaultSummarySchema = z.object({
   /** The parent vault on a child vault, null on a vault that takes deposits. Absent from older servers. */
   parent: z.string().nullable().optional(),
   childCount: z.number().int().nonnegative().optional(),
+  /** In manager selection: only the vault's manager may deposit. Absent from older servers. */
+  selection: z.boolean().optional(),
 });
 export type VaultSummary = z.infer<typeof VaultSummarySchema>;
 

@@ -20,6 +20,9 @@ Node 18 or later.
 `@solana/web3.js` is a peer dependency, so the SDK and your code share one copy of
 `Keypair`, `PublicKey`, and `VersionedTransaction`.
 
+The client sends `User-Agent: hedginxyz-sdk/<version>`. When the API reports a newer release,
+each client prints one `console.warn` with the upgrade command. Nothing updates on its own.
+
 ## Use
 
 ```ts

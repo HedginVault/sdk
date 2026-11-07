@@ -37,6 +37,7 @@ import {
   vaultData,
 } from "./schemas";
 import { DEFAULT_MAX_PRIORITY_FEE_LAMPORTS, HEDGE_VAULT_PROGRAM_ID, type TransactionSigner } from "./signer";
+import { SDK_VERSION, isNewerVersion } from "./version";
 
 const READ_TIMEOUT_MS = 10_000;
 // Builders simulate on chain and can call Jupiter, so they get more time.
@@ -109,17 +110,27 @@ export function createHedgeClient(options: HedgeClientOptions): HedgeClient {
   const baseUrl = normalizeBaseUrl(options.baseUrl ?? "https://hedgin.xyz");
   const programId = options.programId ?? HEDGE_VAULT_PROGRAM_ID;
   const maxPriorityFeeLamports = options.maxPriorityFeeLamports ?? DEFAULT_MAX_PRIORITY_FEE_LAMPORTS;
+  let warnedLatest = false;
+
+  function noticeLatest(response: Response): void {
+    const latest = response.headers.get("x-hedge-sdk-latest");
+    if (warnedLatest || latest === null || !isNewerVersion(latest, SDK_VERSION)) return;
+    warnedLatest = true;
+    console.warn(`@hedginxyz/sdk ${SDK_VERSION} is out of date; ${latest.trim()} is available. Run: yarn upgrade @hedginxyz/sdk@latest`);
+  }
 
   async function call<T>(path: string, schema: z.ZodType<T, z.ZodTypeDef, unknown>, requestBody?: Record<string, unknown>): Promise<T> {
     const response = await fetchImpl(`${baseUrl}/api/external/v1${path}`, {
       method: requestBody === undefined ? "GET" : "POST",
       headers: {
         Authorization: `Bearer ${options.apiKey}`,
+        "User-Agent": `hedginxyz-sdk/${SDK_VERSION}`,
         ...(requestBody === undefined ? {} : { "Content-Type": "application/json" }),
       },
       ...(requestBody === undefined ? {} : { body: JSON.stringify(requestBody) }),
       signal: AbortSignal.timeout(requestBody === undefined ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS),
     });
+    noticeLatest(response);
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok) {
       const error = ErrorBodySchema.safeParse(body);

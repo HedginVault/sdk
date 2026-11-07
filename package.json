@@ -1,6 +1,6 @@
 {
   "name": "@hedginxyz/sdk",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "TypeScript client for the Hedge Vault manager bot API (V1): reads, safe local signing, and one-call execution.",
   "license": "ISC",
   "repository": {

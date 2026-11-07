@@ -39,13 +39,15 @@
     "test:watch": "vitest",
     "check-api": "tsx --env-file=.env src/check-api.ts",
     "prepare": "tsc -p tsconfig.json",
-    "prepublishOnly": "yarn run check && yarn test"
+    "prepublishOnly": "yarn run check && yarn test",
+    "sync-idl": "node scripts/sync-idl.mjs"
   },
   "peerDependencies": {
     "@solana/web3.js": "^1.98.4"
   },
   "packageManager": "yarn@1.22.22",
   "dependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
     "bs58": "4.0.1",
     "zod": "^3.23"
   },

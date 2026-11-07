@@ -100,7 +100,7 @@ function decodeForSigner(base64: string, manager: PublicKey): VersionedTransacti
   return tx;
 }
 
-function checkPrograms(tx: VersionedTransaction, allowed: (program: string, data: Uint8Array) => boolean, policy: SigningPolicy): void {
+export function checkPrograms(tx: VersionedTransaction, allowed: (program: string, data: Uint8Array) => boolean, policy: SigningPolicy): void {
   const { staticAccountKeys, compiledInstructions } = tx.message;
   let limit: bigint | undefined;
   let price: bigint | undefined;

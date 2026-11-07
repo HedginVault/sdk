@@ -20,6 +20,9 @@ Node 18 or later.
 `@solana/web3.js` is a peer dependency, so the SDK and your code share one copy of
 `Keypair`, `PublicKey`, and `VersionedTransaction`.
 
+The client sends `User-Agent: hedginxyz-sdk/<version>`. When the API reports a newer release,
+each client prints one `console.warn` with the upgrade command. Nothing updates on its own.
+
 ## Use
 
 ```ts
@@ -76,6 +79,80 @@ array: absent means these holdings are unknown, while `[]` means none were repor
 `getNavHistory` and `getStrategyHistory` fail with `HistoryUnavailable` (HTTP 503) when the
 deployment has no history database. In `getPhoenix`, `openOrders`, `withdrawable`, and
 `account` are `null` when Phoenix's own API is down.
+
+## Depositor SDK
+
+`HedgeVault` is for depositors. It reads vaults straight from chain through your own
+`Connection` and builds deposit and withdrawal transactions locally from the program IDL. It
+needs no API key and never calls a Hedgin server. Like Meteora's DLMM SDK, every action
+returns an unsigned `Transaction`; you sign and send it.
+
+```ts
+import { Connection, Keypair, PublicKey, sendAndConfirmTransaction } from "@solana/web3.js";
+import { BN } from "@coral-xyz/anchor";
+import { HedgeVault } from "@hedginxyz/sdk";
+
+const connection = new Connection(process.env.RPC_URL!);
+const user = Keypair.fromSecretKey(/* your signer bytes */);
+
+const vaults = await HedgeVault.getAll(connection);
+const vault = await HedgeVault.create(connection, new PublicKey(vaults[0].address));
+
+// Deposit 5 USDC (6 decimals): amounts are BN in base units.
+const tx = await vault.deposit({ user: user.publicKey, amount: new BN(5_000_000) });
+const signature = await sendAndConfirmTransaction(connection, tx, [user]);
+
+// After the next NAV (every 4 hours) the keeper turns the deposit into shares.
+const { shares, valueAtNav, depositRequest, withdrawalRequest } = await vault.getPositionByUser(user.publicKey);
+
+// Withdraw all shares in the wallet.
+await sendAndConfirmTransaction(connection, await vault.withdraw({ user: user.publicKey, shares }), [user]);
+```
+
+In a browser, send the same transaction with the wallet adapter:
+`await wallet.sendTransaction(await vault.deposit({ user: wallet.publicKey, amount }), connection)`.
+
+### Reads
+
+| Method | RPC calls | Returns |
+| --- | --- | --- |
+| `HedgeVault.getAll(connection, opt?)` | 1 `getProgramAccounts`, 1 batched mint read | Every vault that takes deposits as `VaultSummary[]`, sorted by id. Child vaults are left out. `selection: true` means only the vault's manager may deposit. Some RPC providers restrict `getProgramAccounts`. |
+| `HedgeVault.create(connection, vault, opt?)` | 3 batched reads | A loaded vault. `vault.state` is a `VaultDetail`, the same fields as the API's `getVault` except `unmanagedHoldings`. Throws `ApiError` 404 `NotFound` for an address that is not a vault of the program. |
+| `vault.refetchStates()` | 3 batched reads | Re-reads `vault.state`. |
+| `vault.getPositionByUser(user)` | 1 batched read | `shares` in the wallet and their `valueAtNav` (deposit-mint base units), plus the open `depositRequest` (`amount`) and `withdrawalRequest` (`shares`), or null. Each request has `state` (`pending`, `resolvable`, `frozen`), `cancellable`, `awaitingApproval`, `epoch` and `createdTs`. Shares escrowed by a pending withdrawal are in `withdrawalRequest.shares`, not `shares`. |
+
+`opt` takes `programId` (a non-production deployment), `jupiterApiKey` (token symbols from
+`api.jup.ag` instead of `lite-api.jup.ag`), `fetch`, and `maxPriorityFeeLamports`.
+
+### Actions
+
+Each takes one object with `user`, the wallet that signs and pays, and returns a
+`Promise<Transaction>`. Amounts are `BN` in base units: `amount` in the deposit mint's,
+`shares` in the share mint's.
+
+| Method | Params | What it does |
+| --- | --- | --- |
+| `deposit` | `user`, `amount` | Queues a deposit. The tokens move into escrow until the next NAV. A SOL vault wraps whatever native SOL the user's wSOL account is short by, in the same transaction. |
+| `cancelDeposit` | `user` | Refunds the open deposit while it is still pending. |
+| `withdraw` | `user`, `shares` | Queues a withdrawal. The shares move into escrow until the next NAV. |
+| `cancelWithdrawal` | `user` | Returns the escrowed shares while the withdrawal is still pending. |
+
+There is no resolve method. After each NAV the keeper settles every resolvable request: a
+deposit becomes shares, and a withdrawal pays out the deposit token (native SOL for a SOL
+vault).
+
+Each transaction is simulated before it is returned, so a request the program would refuse
+throws `ApiError` with the program's error name, such as `DepositBelowMinimum`,
+`VaultInSelection`, or `RequestNotFound` when there is no open request. The transaction
+carries `recentBlockhash` and `lastValidBlockHeight`, and pays the compute the simulation used
+plus 20%.
+
+Before returning a transaction, the SDK refuses it (`UnsafeTransactionError`) unless it has
+exactly one signer, `user`, no lookup tables, and one Hedge Vault instruction of the requested
+kind for this vault, owner and amount. The priority fee must fit `maxPriorityFeeLamports`
+(default 0.001 SOL; the price is the median recent fee for the vault, cut to fit). Only a SOL
+deposit may add more: creating the user's own wSOL account, moving at most `amount` lamports
+into it, and syncing it.
 
 ## Actions
 
@@ -188,6 +265,9 @@ per vault; nothing is signed or sent. A failure here means the API and this SDK 
 yarn install --frozen-lockfile
 yarn run check && yarn test && yarn build
 ```
+
+After a program change, rebuild the program repo and run `yarn sync-idl` to copy its IDL into
+`src/idl/`. Never edit those files by hand.
 
 ## Release
 

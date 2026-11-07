@@ -4,6 +4,7 @@ import { createHedgeClient } from "../src/client";
 import { ApiError } from "../src/errors";
 import type { ActionRequest } from "../src/actions";
 import { PHOENIX_PROGRAM_ID, keypairSigner } from "../src/signer";
+import { SDK_VERSION } from "../src/version";
 import { SOL, USDC, VAULT, holdings, navHistory, phoenixView, quote, requestQueue, strategyHistory, vaultDetail } from "./fixtures";
 
 const vault = {
@@ -31,8 +32,31 @@ describe("createHedgeClient", () => {
     ]);
     expect(fetch).toHaveBeenCalledWith(
       "https://example.test/api/external/v1/vaults",
-      expect.objectContaining({ headers: { Authorization: "Bearer hv1_demo_secret" } }),
+      expect.objectContaining({ headers: { Authorization: "Bearer hv1_demo_secret", "User-Agent": `hedginxyz-sdk/${SDK_VERSION}` } }),
     );
+  });
+  it("warns once per client when the server advertises a newer SDK, on success and error replies", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "x-hedge-sdk-latest": "99.0.0" } });
+    const fetch = vi.fn(async () => reply(200, { vaults: [vault] }));
+    const api = createHedgeClient({ baseUrl: "https://example.test", apiKey: "k", fetch });
+    await api.listVaults();
+    await api.listVaults();
+    expect(warn.mock.calls).toEqual([[`@hedginxyz/sdk ${SDK_VERSION} is out of date; 99.0.0 is available. Run: yarn upgrade @hedginxyz/sdk@latest`]]);
+    fetch.mockImplementation(async () => reply(401, { error: { code: "unauthorized", message: "Invalid API key" } }));
+    const other = createHedgeClient({ baseUrl: "https://example.test", apiKey: "k", fetch });
+    await expect(other.listVaults()).rejects.toMatchObject({ code: "unauthorized" });
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+  it("stays quiet when the advertised SDK is the same, older, or malformed", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    for (const latest of [SDK_VERSION, "0.0.1", "latest", "1.0", "1.0.0-beta.1"]) {
+      const fetch = vi.fn(async () => new Response(JSON.stringify({ vaults: [] }), { status: 200, headers: { "x-hedge-sdk-latest": latest } }));
+      await createHedgeClient({ baseUrl: "https://example.test", apiKey: "k", fetch }).listVaults();
+    }
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
   it("surfaces the documented error body", async () => {
     const api = createHedgeClient({ baseUrl: "https://example.test", apiKey: "k", fetch: stubFetch(401, { error: { code: "unauthorized", message: "Invalid API key" } }) });

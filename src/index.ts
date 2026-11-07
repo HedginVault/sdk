@@ -11,6 +11,7 @@ export {
   toBuildRequest,
 } from "./actions";
 export { type HedgeClient, type HedgeClientOptions, type QuoteRequest, createHedgeClient, normalizeBaseUrl } from "./client";
+export { HedgeVault, type HedgeVaultOptions, type RequestState, type RequestView, type VaultPosition } from "./hedge-vault";
 export { ApiError, UnsafeTransactionError } from "./errors";
 export { type ExecuteOptions, type Created, type ExecutionTransport, type Outcome, type Progress, executeBuild, executePhoenixOnboard, groupSteps } from "./executor";
 export * from "./schemas";

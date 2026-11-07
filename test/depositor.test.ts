@@ -378,18 +378,16 @@ describe("HedgeVault actions", () => {
     expect(tx.instructions).toHaveLength(6);
   });
 
-  it("resolves someone else's SOL withdrawal through its unwrap account", async () => {
-    const { vault } = await load(SOL_VAULT, await solChain(), txRpc().rpc);
+  it("cancels the user's own withdrawal request and nobody else's", async () => {
+    const { vault } = await load(VAULT_1, await chain(), txRpc().rpc);
 
-    const tx = await vault.resolveWithdrawal({ user: USER, withdrawer: STRANGER });
+    const tx = await vault.cancelWithdrawal({ user: USER });
 
     const { ix, decoded } = vaultIx(tx);
-    const request = PublicKey.findProgramAddressSync([Buffer.from("withdrawal_request"), SOL_VAULT.toBuffer(), STRANGER.toBuffer()], PROGRAM)[0];
-    const unwrap = PublicKey.findProgramAddressSync([Buffer.from("unwrap"), request.toBuffer()], PROGRAM)[0];
-    expect(decoded?.name).toBe("withdrawalRequestResolve");
+    const request = PublicKey.findProgramAddressSync([Buffer.from("withdrawal_request"), VAULT_1.toBuffer(), USER.toBuffer()], PROGRAM)[0];
+    expect(decoded?.name).toBe("withdrawalRequestCancel");
     expect(ix.keys[0]?.pubkey.equals(USER)).toBe(true);
-    expect(ix.keys[3]?.pubkey.equals(STRANGER)).toBe(true);
-    expect(ix.keys.some((k) => k.pubkey.equals(unwrap))).toBe(true);
+    expect(ix.keys[2]?.pubkey.equals(request)).toBe(true);
   });
 
   it("answers a vault in selection before simulating, and names a program error from simulation", async () => {

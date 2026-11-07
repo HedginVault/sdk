@@ -84,14 +84,6 @@ export class HedgeVault {
     return this.build(user, { action: "deposit/cancel", vault: this.pubkey });
   }
 
-  /**
-   * Settles a resolvable deposit into shares. The keeper does this on its own after each NAV; this pays for it sooner.
-   * `depositor` defaults to `user`.
-   */
-  async resolveDeposit({ user, depositor }: { user: PublicKey; depositor?: PublicKey }): Promise<Transaction> {
-    return this.build(user, { action: "deposit/resolve", vault: this.pubkey, depositor });
-  }
-
   /** Queues a withdrawal of `shares` share base units. */
   async withdraw({ user, shares }: { user: PublicKey; shares: BN }): Promise<Transaction> {
     return this.build(user, { action: "withdrawal/create", vault: this.pubkey, shares: baseUnits(shares, "shares") });
@@ -100,14 +92,6 @@ export class HedgeVault {
   /** Returns the user's escrowed shares. */
   async cancelWithdrawal({ user }: { user: PublicKey }): Promise<Transaction> {
     return this.build(user, { action: "withdrawal/cancel", vault: this.pubkey });
-  }
-
-  /**
-   * Pays out a resolvable withdrawal; a SOL vault pays native SOL. The keeper does this on its own after each NAV; this
-   * pays for it sooner. `withdrawer` defaults to `user`.
-   */
-  async resolveWithdrawal({ user, withdrawer }: { user: PublicKey; withdrawer?: PublicKey }): Promise<Transaction> {
-    return this.build(user, { action: "withdrawal/resolve", vault: this.pubkey, withdrawer });
   }
 
   private async build(user: PublicKey, request: DepositorRequest): Promise<Transaction> {

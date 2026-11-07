@@ -13,17 +13,15 @@ import { ApiError, UnsafeTransactionError } from "../errors";
 import idl from "../idl/hedge_vault.json";
 import { checkPrograms } from "../signer";
 import { type VaultAccount, decodeTokenAmount } from "./decode";
-import { getAssociatedTokenAddress, getConfigPda, getDepositRequestPda, getShareMintPda, getUnwrapPda, getWithdrawalRequestPda } from "./pda";
+import { getAssociatedTokenAddress, getConfigPda, getDepositRequestPda, getShareMintPda, getWithdrawalRequestPda } from "./pda";
 import { type ChainContext, getAccounts } from "./reads";
 
 /** A depositor's own request, as the SDK checks it. Amounts are base units of the deposit mint; shares of the share mint. */
 export type DepositorRequest =
   | { action: "deposit/create"; vault: PublicKey; amount: bigint }
   | { action: "deposit/cancel"; vault: PublicKey }
-  | { action: "deposit/resolve"; vault: PublicKey; depositor?: PublicKey }
   | { action: "withdrawal/create"; vault: PublicKey; shares: bigint }
-  | { action: "withdrawal/cancel"; vault: PublicKey }
-  | { action: "withdrawal/resolve"; vault: PublicKey; withdrawer?: PublicKey };
+  | { action: "withdrawal/cancel"; vault: PublicKey };
 
 export type DepositorAction = DepositorRequest["action"];
 
@@ -31,10 +29,8 @@ export type DepositorAction = DepositorRequest["action"];
 const SPECS = {
   "deposit/create": { method: "depositRequestCreate", owner: "depositor", arg: "amount" },
   "deposit/cancel": { method: "depositRequestCancel", owner: "depositor", arg: null },
-  "deposit/resolve": { method: "depositRequestResolve", owner: "depositor", arg: null },
   "withdrawal/create": { method: "withdrawalRequestCreate", owner: "withdrawer", arg: "shares" },
   "withdrawal/cancel": { method: "withdrawalRequestCancel", owner: "withdrawer", arg: null },
-  "withdrawal/resolve": { method: "withdrawalRequestResolve", owner: "withdrawer", arg: null },
 } as const satisfies Record<DepositorAction, { method: string; owner: string; arg: "amount" | "shares" | null }>;
 
 const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
@@ -54,12 +50,6 @@ export interface RequestVault {
   key: PublicKey;
   account: VaultAccount;
   tokenProgram: PublicKey;
-}
-
-function owner(request: DepositorRequest, payer: PublicKey): PublicKey {
-  if (request.action === "deposit/resolve" && request.depositor) return request.depositor;
-  if (request.action === "withdrawal/resolve" && request.withdrawer) return request.withdrawer;
-  return payer;
 }
 
 function amountOf(request: DepositorRequest): bigint | null {
@@ -108,7 +98,6 @@ async function requestInstructions(ctx: ChainContext, v: RequestVault, payer: Pu
   const depositMint = v.account.depositMint;
   const depositMintTokenProgram = v.tokenProgram;
   const shareMint = getShareMintPda(vault, ctx.programId);
-  const who = owner(request, payer);
   const amount = new BN((amountOf(request) ?? 0n).toString());
   switch (request.action) {
     case "deposit/create":
@@ -123,22 +112,6 @@ async function requestInstructions(ctx: ChainContext, v: RequestVault, payer: Pu
           .accountsPartial({ depositor: payer, vault, depositRequest: getDepositRequestPda(vault, payer, ctx.programId), depositMint, depositMintTokenProgram })
           .instruction(),
       ];
-    case "deposit/resolve":
-      return [
-        await methods
-          .depositRequestResolve()
-          .accountsPartial({
-            resolver: payer,
-            config,
-            vault,
-            depositor: who,
-            depositRequest: getDepositRequestPda(vault, who, ctx.programId),
-            depositMint,
-            shareMint,
-            depositMintTokenProgram,
-          })
-          .instruction(),
-      ];
     case "withdrawal/create":
       return [
         await methods.withdrawalRequestCreate(amount).accountsPartial({ withdrawer: payer, config, vault, depositMint, shareMint, depositMintTokenProgram }).instruction(),
@@ -150,25 +123,6 @@ async function requestInstructions(ctx: ChainContext, v: RequestVault, payer: Pu
           .accountsPartial({ withdrawer: payer, vault, withdrawalRequest: getWithdrawalRequestPda(vault, payer, ctx.programId), shareMint })
           .instruction(),
       ];
-    case "withdrawal/resolve": {
-      const withdrawalRequest = getWithdrawalRequestPda(vault, who, ctx.programId);
-      return [
-        await methods
-          .withdrawalRequestResolve()
-          .accountsPartial({
-            resolver: payer,
-            config,
-            vault,
-            withdrawer: who,
-            withdrawalRequest,
-            depositMint,
-            shareMint,
-            depositMintTokenProgram,
-            unwrapAccount: depositMint.equals(NATIVE_MINT) ? getUnwrapPda(withdrawalRequest, ctx.programId) : null,
-          })
-          .instruction(),
-      ];
-    }
   }
 }
 
@@ -258,7 +212,7 @@ export function inspectDepositorTransaction(
       const decoded = coder.decode(data);
       if (decoded?.name !== spec.method) refuse(`Expected only ${spec.method}, found ${decoded?.name ?? "an unknown Hedge Vault instruction"}`);
       if (!keyOf(ix, "vault")?.equals(request.vault)) refuse("Instruction is for a different vault");
-      if (!keyOf(ix, spec.owner)?.equals(owner(request, payer))) refuse(`Instruction is for a different ${spec.owner}`);
+      if (!keyOf(ix, spec.owner)?.equals(payer)) refuse(`Instruction is for a different ${spec.owner}`);
       const arg: unknown = spec.arg && decoded ? (decoded.data as Record<string, unknown>)[spec.arg] : null;
       // The IDL decodes a u64 as BN, whose String() is its decimal value.
       if (spec.arg && String(arg) !== String(amount)) refuse(`Instruction ${spec.arg} does not match the request`);

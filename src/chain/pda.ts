@@ -17,5 +17,3 @@ export const getDepositRequestPda = (vault: PublicKey, depositor: PublicKey, pro
   find([Buffer.from("deposit_request"), vault.toBuffer(), depositor.toBuffer()], programId);
 export const getWithdrawalRequestPda = (vault: PublicKey, withdrawer: PublicKey, programId: PublicKey) =>
   find([Buffer.from("withdrawal_request"), vault.toBuffer(), withdrawer.toBuffer()], programId);
-/** Where a wSOL vault's withdrawal resolve unwraps the payout, so the withdrawer receives native SOL. */
-export const getUnwrapPda = (withdrawalRequest: PublicKey, programId: PublicKey) => find([Buffer.from("unwrap"), withdrawalRequest.toBuffer()], programId);

@@ -133,8 +133,10 @@ Each takes one object with `user`, the wallet that signs and pays, and returns a
 | `cancelDeposit` | `user` | Refunds the open deposit while it is still pending. |
 | `withdraw` | `user`, `shares` | Queues a withdrawal. The shares move into escrow until the next NAV. |
 | `cancelWithdrawal` | `user` | Returns the escrowed shares while the withdrawal is still pending. |
-| `resolveDeposit` | `user`, `depositor?` | Settles a resolvable deposit into shares now. The keeper does this on its own after each NAV, so this is only to settle sooner. `depositor` defaults to `user`. |
-| `resolveWithdrawal` | `user`, `withdrawer?` | Pays out a resolvable withdrawal now; a SOL vault pays native SOL. Same as above: the keeper does it on its own. |
+
+There is no resolve method. After each NAV the keeper settles every resolvable request: a
+deposit becomes shares, and a withdrawal pays out the deposit token (native SOL for a SOL
+vault).
 
 Each transaction is simulated before it is returned, so a request the program would refuse
 throws `ApiError` with the program's error name, such as `DepositBelowMinimum`,

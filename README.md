@@ -151,7 +151,7 @@ To open a position, read the pool first with `getPool(vault, lbPair)` and choose
 `lowerBinId` and an exclusive `upperBinId` around its `activeBinId` (requires the app's
 `GET /dlmm/pools/{lbPair}` route, app PR #17).
 
-Pass `maxPriceImpactBps` to `createHedgeClient` to refuse a Jupiter quote above that price impact on every swap-capable action (`jupiter/swap`, `jupiter/sweep`, `dlmm/open`, `dlmm/remove`, `dlmm/zap-out`, and the `dlmm/zap-out/swap` continuation); the API defaults to 1000 and caps at 2000. A value on the action overrides it.
+Pass `maxPriceImpactBps` to `createHedgeClient` to refuse a Jupiter quote above that price impact on every swap-capable action (`jupiter/swap`, `jupiter/sweep`, `dlmm/open`, `dlmm/remove`, `dlmm/zap-out`, and the `dlmm/zap-out/swap` continuation); the API defaults to 1000 and caps at 2000. A value on the action overrides it. Available from 0.6.0.
 
 ## Safety
 

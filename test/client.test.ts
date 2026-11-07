@@ -191,6 +191,9 @@ describe("execute", () => {
     it("lets a per-action value override the client option", async () => {
       expect(await buildBody({ maxPriceImpactBps: 300 }, "jupiter/swap", { ...swap, maxPriceImpactBps: 100 })).toMatchObject({ maxPriceImpactBps: 100 });
     });
+    it("adds the client option when the action's value is explicitly undefined", async () => {
+      expect(await buildBody({ maxPriceImpactBps: 300 }, "jupiter/swap", { ...swap, maxPriceImpactBps: undefined })).toMatchObject({ maxPriceImpactBps: 300 });
+    });
     it("leaves the body unchanged when neither is set", async () => {
       expect(await buildBody({}, "jupiter/swap", { ...swap })).not.toHaveProperty("maxPriceImpactBps");
     });

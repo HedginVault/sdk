@@ -171,7 +171,7 @@ export function createHedgeClient(options: HedgeClientOptions): HedgeClient {
       (await call(`/dlmm/pools/${encodeURIComponent(lbPair)}?${new URLSearchParams({ vault })}`, vaultData(PoolInfoSchema))).data,
     build: async (action, body) => {
       const withImpact =
-        SWAP_CAPABLE.has(action) && options.maxPriceImpactBps !== undefined && !Object.hasOwn(body, "maxPriceImpactBps")
+        SWAP_CAPABLE.has(action) && options.maxPriceImpactBps !== undefined && (body as { maxPriceImpactBps?: unknown }).maxPriceImpactBps === undefined
           ? { ...body, maxPriceImpactBps: options.maxPriceImpactBps }
           : body;
       const { result } = await call(`/transactions/${action}`, BuildResponseSchema, withImpact);

@@ -11,6 +11,8 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import bs58 from "bs58";
+import { join } from "node:path";
+import { build } from "esbuild";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getConfigPda, getMetadataPda, getShareMintPda } from "../src/chain/pda";
 import { accountsCoder, hedgeProgram } from "../src/chain/reads";
@@ -408,6 +410,57 @@ describe("HedgeVault actions", () => {
     const missing = await load(VAULT_1, await chain(), txRpc({ simulateTransaction: async () => ({ value: { err: { InstructionError: [2, { Custom: 3012 }] }, logs: [] } }) }).rpc);
     await expect(missing.vault.cancelDeposit({ user: USER })).rejects.toMatchObject({ code: "RequestNotFound" });
   });
+
+  it("names a wallet short of tokens or of SOL for the fee", async () => {
+    const failing = async (err: unknown) => (await load(VAULT_1, await chain(), txRpc({ simulateTransaction: async () => ({ value: { err, logs: [] } }) }).rpc)).vault;
+    const shortTokens = await failing({ InstructionError: [2, { Custom: 1 }] });
+    await expect(shortTokens.deposit({ user: USER, amount: new BN(5_000_000) })).rejects.toMatchObject({
+      status: 422,
+      code: "InsufficientFunds",
+      message: "The wallet does not hold enough of the token for this request",
+    });
+    for (const err of ["AccountNotFound", "InsufficientFundsForFee"]) {
+      await expect((await failing(err)).withdraw({ user: USER, shares: new BN(10) })).rejects.toMatchObject({
+        status: 422,
+        code: "InsufficientSol",
+        message: "The wallet has no SOL to pay the transaction fee",
+      });
+    }
+  });
+
+  it("runs bundled for a browser, where there is no global Buffer", async () => {
+    // Bundled as Vite does for an app: browser platform, node:fs stubbed out, Buffer not defined.
+    const { outputFiles } = await build({
+      stdin: { contents: `export * from "./src/index"; export { PublicKey } from "@solana/web3.js"; export { BN } from "@coral-xyz/anchor";`, resolveDir: join(__dirname, "..") },
+      bundle: true,
+      platform: "browser",
+      format: "iife",
+      globalName: "sdk",
+      external: ["node:fs"],
+      write: false,
+      logLevel: "silent",
+    });
+    const accounts = await solChain();
+    const nodeBuffer = globalThis.Buffer;
+    Reflect.deleteProperty(globalThis, "Buffer");
+    try {
+      const browser = new Function("require", `${outputFiles[0]?.text}; return sdk;`)(() => ({})) as typeof import("../src/index") & {
+        PublicKey: typeof PublicKey;
+        BN: typeof BN;
+      };
+      expect(globalThis.Buffer).not.toBe(nodeBuffer);
+      // web3.js hands account data back in the browser's Buffer, not Node's.
+      const { connection } = fakeConnection(new Map([...accounts].map(([k, info]) => [k, { ...info, data: globalThis.Buffer.from(info.data) }])), txRpc().rpc);
+      const vault = await browser.HedgeVault.create(connection, new browser.PublicKey(SOL_VAULT.toBase58()), { fetch: jupiterOk() });
+      const user = new browser.PublicKey(USER.toBase58());
+
+      expect((await vault.getPositionByUser(user)).shares.toString()).toBe("0");
+      const tx = await vault.deposit({ user, amount: new browser.BN(1_000) });
+      expect(tx.instructions).toHaveLength(6);
+    } finally {
+      globalThis.Buffer = nodeBuffer;
+    }
+  }, 30_000);
 
   it("rejects an amount that is not a positive u64 BN before simulating", async () => {
     const { rpc, simulated } = txRpc();

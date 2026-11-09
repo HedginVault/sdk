@@ -135,6 +135,10 @@ export function describeTransactionError(err: TransactionError): { code: string;
   if (known) return { code: known.name, message: known.msg };
   // Anchor's own code; in these six actions only the request account can be missing.
   if (custom === ANCHOR_ACCOUNT_NOT_INITIALIZED) return { code: "RequestNotFound", message: "There is no open request to act on" };
+  // Code 1 of the token program (InsufficientFunds) and of the system program (a wrap short of lamports).
+  if (custom === 1) return { code: "InsufficientFunds", message: "The wallet does not hold enough of the token for this request" };
+  // The fee payer has no account at all, or too little SOL for the fee.
+  if (err === "AccountNotFound" || err === "InsufficientFundsForFee") return { code: "InsufficientSol", message: "The wallet has no SOL to pay the transaction fee" };
   return { code: "TransactionFailed", message: JSON.stringify(err) };
 }
 

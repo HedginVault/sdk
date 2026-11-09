@@ -109,7 +109,8 @@ const { shares, valueAtNav, depositRequest, withdrawalRequest } = await vault.ge
 await sendAndConfirmTransaction(connection, await vault.withdraw({ user: user.publicKey, shares }), [user]);
 ```
 
-In a browser, send the same transaction with the wallet adapter:
+In a browser, send the same transaction with the wallet adapter. The SDK sets
+`globalThis.Buffer` when it is missing, since Anchor's decoders need it, so no polyfill is required:
 `await wallet.sendTransaction(await vault.deposit({ user: wallet.publicKey, amount }), connection)`.
 
 ### Reads
@@ -143,7 +144,9 @@ vault).
 
 Each transaction is simulated before it is returned, so a request the program would refuse
 throws `ApiError` with the program's error name, such as `DepositBelowMinimum`,
-`VaultInSelection`, or `RequestNotFound` when there is no open request. The transaction
+`VaultInSelection`, or `RequestNotFound` when there is no open request. A wallet short of the
+deposit token or shares throws `InsufficientFunds`, and one with no SOL for the fee throws
+`InsufficientSol`. The transaction
 carries `recentBlockhash` and `lastValidBlockHeight`, and pays the compute the simulation used
 plus 20%.
 

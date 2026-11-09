@@ -122,9 +122,12 @@ function fakeConnection(accounts: Map<string, AccountInfo<Buffer>>, rpc: Record<
   return { connection: connection as unknown as Connection, calls };
 }
 
-const jupiterOk = () =>
-  vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
-    new Response(JSON.stringify([{ id: HUSD.toBase58(), symbol: "HUSD", name: "Hedge USD", icon: null }]), { status: 200 }),
+/** Hedgin's listed vaults and Jupiter's token search, answered as each would. */
+const jupiterOk = (listed: PublicKey[] = [VAULT_1, SOL_VAULT]) =>
+  vi.fn(async (url: string | URL | Request, _init?: RequestInit) =>
+    String(url) === "https://hedgin.xyz/api/vaults/listed"
+      ? new Response(JSON.stringify({ vaults: listed.map((v) => v.toBase58()) }), { status: 200 })
+      : new Response(JSON.stringify([{ id: HUSD.toBase58(), symbol: "HUSD", name: "Hedge USD", icon: null }]), { status: 200 }),
   );
 
 async function chain(programId = PROGRAM) {
@@ -197,7 +200,7 @@ describe("HedgeVault reads", () => {
     expect(fetch).toHaveBeenCalledWith(`https://api.jup.ag/tokens/v2/search?query=${HUSD.toBase58()}`, { headers: { "x-api-key": "jup-key" } });
   });
 
-  it("lists vaults that take deposits sorted by id, without child vaults", async () => {
+  it("lists only vaults Hedgin lists, sorted by id, without child vaults", async () => {
     const { connection, calls } = fakeConnection(await chain());
 
     expect(await HedgeVault.getAll(connection, { fetch: jupiterOk() })).toEqual([
@@ -213,19 +216,6 @@ describe("HedgeVault reads", () => {
         parent: null,
         childCount: 0,
         selection: false,
-      },
-      {
-        address: VAULT_2.toBase58(),
-        name: "Vault #2",
-        status: "paused",
-        depositMint: USDC.toBase58(),
-        depositSymbol: "USDC",
-        depositDecimals: 6,
-        totalAssets: "0",
-        approvalRequired: false,
-        parent: null,
-        childCount: 0,
-        selection: true,
       },
     ]);
     expect(calls).toEqual([`getProgramAccounts:${PROGRAM.toBase58()}`, "getMultipleAccountsInfo"]);
@@ -254,10 +244,12 @@ describe("HedgeVault reads", () => {
     expect(((await HedgeVault.create(connection, VAULT_1, { fetch: down })).state).depositSymbol).toBe(
       `${HUSD.toBase58().slice(0, 4)}…${HUSD.toBase58().slice(-4)}`,
     );
-    const unreachable = vi.fn(async () => {
-      throw new TypeError("fetch failed");
+    const listed = jupiterOk();
+    const jupiterUnreachable = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes("jup.ag")) throw new TypeError("fetch failed");
+      return listed(url);
     });
-    const [first] = await HedgeVault.getAll(connection, { fetch: unreachable });
+    const [first] = await HedgeVault.getAll(connection, { fetch: jupiterUnreachable });
     expect(first?.depositSymbol).toBe(`${HUSD.toBase58().slice(0, 4)}…${HUSD.toBase58().slice(-4)}`);
     const garbage = vi.fn(async () => new Response(JSON.stringify({ tokens: "nope" }), { status: 200 }));
     expect(((await HedgeVault.create(connection, VAULT_1, { fetch: garbage })).state).depositDecimals).toBe(6);
@@ -303,7 +295,7 @@ describe("HedgeVault reads", () => {
     const { connection, calls } = fakeConnection(await chain(OTHER_PROGRAM));
     const opt = { fetch: jupiterOk(), programId: OTHER_PROGRAM };
 
-    expect((await HedgeVault.getAll(connection, opt)).map((v) => v.address)).toEqual([VAULT_1.toBase58(), VAULT_2.toBase58()]);
+    expect((await HedgeVault.getAll(connection, opt)).map((v) => v.address)).toEqual([VAULT_1.toBase58()]);
     expect(calls[0]).toBe(`getProgramAccounts:${OTHER_PROGRAM.toBase58()}`);
     await expect(HedgeVault.create(connection, VAULT_1, { fetch: jupiterOk() })).rejects.toMatchObject({ code: "NotFound" });
     expect((await HedgeVault.create(connection, VAULT_1, opt)).state).toMatchObject({
@@ -409,6 +401,37 @@ describe("HedgeVault actions", () => {
     await expect(vault.withdraw({ user: USER, shares: new BN(10) })).rejects.toMatchObject({ code: "VaultInSelection", message: "Vault is in selection, only its manager can deposit" });
     const missing = await load(VAULT_1, await chain(), txRpc({ simulateTransaction: async () => ({ value: { err: { InstructionError: [2, { Custom: 3012 }] }, logs: [] } }) }).rpc);
     await expect(missing.vault.cancelDeposit({ user: USER })).rejects.toMatchObject({ code: "RequestNotFound" });
+  });
+
+  it("takes deposits only into a listed vault, and still lets anyone leave an unlisted one", async () => {
+    const { rpc, simulated } = txRpc();
+    const fake = fakeConnection(await chain(), rpc);
+    const unlisted = await HedgeVault.create(fake.connection, VAULT_1, { fetch: jupiterOk([]) });
+    await expect(unlisted.deposit({ user: USER, amount: new BN(5_000_000) })).rejects.toMatchObject({
+      status: 403,
+      code: "VaultNotListed",
+      message: "This vault is not listed on Hedgin, so it takes no deposits through the SDK",
+    });
+    expect(simulated).toHaveLength(0);
+    expect(vaultIx(await unlisted.withdraw({ user: USER, shares: new BN(10) })).decoded?.name).toBe("withdrawalRequestCreate");
+    expect(vaultIx(await unlisted.cancelDeposit({ user: USER })).decoded?.name).toBe("depositRequestCancel");
+    expect(vaultIx(await unlisted.deposit({ user: MANAGER, amount: new BN(5_000_000) })).decoded?.name).toBe("depositRequestCreate");
+  });
+
+  it("refuses deposits and the vault list when Hedgin's list is unreachable or malformed", async () => {
+    const fake = fakeConnection(await chain(), txRpc().rpc);
+    for (const fetch of [vi.fn(async () => new Response("bad gateway", { status: 502 })), vi.fn(async () => new Response(JSON.stringify({ vaults: "all" }), { status: 200 }))]) {
+      const vault = await HedgeVault.create(fake.connection, VAULT_1, { fetch });
+      await expect(vault.deposit({ user: USER, amount: new BN(5_000_000) })).rejects.toMatchObject({ status: 503, code: "ListingUnavailable" });
+      await expect(HedgeVault.getAll(fake.connection, { fetch })).rejects.toMatchObject({ status: 503, code: "ListingUnavailable" });
+    }
+  });
+
+  it("reads the list from the baseUrl it is given", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ vaults: [VAULT_1.toBase58()] }), { status: 200 }));
+    const { connection } = fakeConnection(await chain());
+    await HedgeVault.getAll(connection, { fetch, baseUrl: "https://staging.hedgin.xyz/" });
+    expect(fetch).toHaveBeenCalledWith("https://staging.hedgin.xyz/api/vaults/listed");
   });
 
   it("names a wallet short of tokens or of SOL for the fee", async () => {

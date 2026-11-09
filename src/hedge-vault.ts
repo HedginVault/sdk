@@ -1,8 +1,10 @@
 import { BN } from "@coral-xyz/anchor";
 import { type Connection, PublicKey, type Transaction } from "@solana/web3.js";
+import { z } from "zod";
 import { type ChainContext, type VaultPosition, hedgeProgram, readPosition, readVaultState, readVaults } from "./chain/reads";
 import { type DepositorRequest, buildDepositorTransaction } from "./chain/requests";
 import type { VaultAccount } from "./chain/decode";
+import { normalizeBaseUrl } from "./client";
 import { ApiError } from "./errors";
 import type { VaultDetail, VaultSummary } from "./schemas";
 import { DEFAULT_MAX_PRIORITY_FEE_LAMPORTS, HEDGE_VAULT_PROGRAM_ID } from "./signer";
@@ -18,6 +20,24 @@ export interface HedgeVaultOptions {
   jupiterApiKey?: string;
   /** Most a built transaction may pay in priority fee, price × compute unit limit. Defaults to 0.001 SOL. */
   maxPriorityFeeLamports?: bigint;
+  /** Hedgin origin whose listed vaults `getAll` returns and `deposit` accepts. Defaults to https://hedgin.xyz. */
+  baseUrl?: string;
+}
+
+const ListedVaultsSchema = z.object({ vaults: z.array(z.string()) });
+
+/**
+ * The vaults hedgin.xyz lists: not hidden by an admin and out of selection. Fails closed, so a deposit never goes to a
+ * vault the SDK could not confirm. ponytail: a client-side gate on a public program, anyone can still call it directly.
+ */
+async function readListedVaults(fetchImpl: typeof fetch, opt: HedgeVaultOptions): Promise<Set<string>> {
+  try {
+    const response = await fetchImpl(`${normalizeBaseUrl(opt.baseUrl ?? "https://hedgin.xyz")}/api/vaults/listed`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return new Set(ListedVaultsSchema.parse(await response.json()).vaults);
+  } catch (e) {
+    throw new ApiError(503, "ListingUnavailable", `Could not read Hedgin's listed vaults: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 /** BN at the boundary, bigint inside; the request check then refuses anything that is not a positive u64. */
@@ -46,18 +66,21 @@ export class HedgeVault {
     private account: VaultAccount,
     private readonly tokenProgram: PublicKey,
     private readonly maxPriorityFeeLamports: bigint,
+    private readonly opt: HedgeVaultOptions,
   ) {}
 
   /** Loads a vault. Throws `ApiError` 404 `NotFound` for an address that is not a vault of the program. */
   static async create(connection: Connection, vault: PublicKey, opt: HedgeVaultOptions = {}): Promise<HedgeVault> {
     const ctx = context(connection, opt);
     const { detail, account, tokenProgram } = await readVaultState(ctx, vault);
-    return new HedgeVault(ctx, vault, detail, account, tokenProgram, opt.maxPriorityFeeLamports ?? DEFAULT_MAX_PRIORITY_FEE_LAMPORTS);
+    return new HedgeVault(ctx, vault, detail, account, tokenProgram, opt.maxPriorityFeeLamports ?? DEFAULT_MAX_PRIORITY_FEE_LAMPORTS, opt);
   }
 
-  /** Every vault that takes deposits, sorted by id. Child vaults are left out. Uses `getProgramAccounts`. */
-  static getAll(connection: Connection, opt: HedgeVaultOptions = {}): Promise<VaultSummary[]> {
-    return readVaults(context(connection, opt));
+  /** Every vault Hedgin lists, sorted by id. Uses `getProgramAccounts` and Hedgin's list of listed vaults. */
+  static async getAll(connection: Connection, opt: HedgeVaultOptions = {}): Promise<VaultSummary[]> {
+    const ctx = context(connection, opt);
+    const [vaults, listed] = await Promise.all([readVaults(ctx), readListedVaults(ctx.fetch, opt)]);
+    return vaults.filter((v) => listed.has(v.address));
   }
 
   /** Re-reads the vault into `state`. */
@@ -74,7 +97,10 @@ export class HedgeVault {
     return position;
   }
 
-  /** Queues a deposit of `amount` deposit-mint base units. A SOL vault wraps whatever native SOL the user's wSOL account is short by. */
+  /**
+   * Queues a deposit of `amount` deposit-mint base units into a vault Hedgin lists; its manager may deposit regardless.
+   * A SOL vault wraps whatever native SOL the user's wSOL account is short by.
+   */
   async deposit({ user, amount }: { user: PublicKey; amount: BN }): Promise<Transaction> {
     return this.build(user, { action: "deposit/create", vault: this.pubkey, amount: baseUnits(amount, "amount") });
   }
@@ -98,6 +124,8 @@ export class HedgeVault {
     // UX only: the program refuses anyone else with VaultInSelection.
     if (request.action === "deposit/create" && this.account.selection !== 0 && !this.account.authority.equals(user))
       throw new ApiError(403, "VaultInSelection", "This vault is in selection. Only its manager can deposit.");
+    if (request.action === "deposit/create" && !this.account.authority.equals(user) && !(await readListedVaults(this.ctx.fetch, this.opt)).has(this.pubkey.toBase58()))
+      throw new ApiError(403, "VaultNotListed", "This vault is not listed on Hedgin, so it takes no deposits through the SDK");
     const vault = { key: this.pubkey, account: this.account, tokenProgram: this.tokenProgram };
     return buildDepositorTransaction(this.ctx, vault, request, user, this.maxPriorityFeeLamports);
   }

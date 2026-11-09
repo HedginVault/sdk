@@ -84,8 +84,9 @@ deployment has no history database. In `getPhoenix`, `openOrders`, `withdrawable
 
 `HedgeVault` is for depositors. It reads vaults straight from chain through your own
 `Connection` and builds deposit and withdrawal transactions locally from the program IDL. It
-needs no API key and never calls a Hedgin server. Like Meteora's DLMM SDK, every action
-returns an unsigned `Transaction`; you sign and send it.
+needs no API key. Its one Hedgin call reads which vaults hedgin.xyz lists: only those show in
+`getAll` and take deposits, so test and hidden vaults stay out of your app. Like Meteora's DLMM
+SDK, every action returns an unsigned `Transaction`; you sign and send it.
 
 ```ts
 import { Connection, Keypair, PublicKey, sendAndConfirmTransaction } from "@solana/web3.js";
@@ -117,13 +118,14 @@ In a browser, send the same transaction with the wallet adapter. The SDK sets
 
 | Method | RPC calls | Returns |
 | --- | --- | --- |
-| `HedgeVault.getAll(connection, opt?)` | 1 `getProgramAccounts`, 1 batched mint read | Every vault that takes deposits as `VaultSummary[]`, sorted by id. Child vaults are left out. `selection: true` means only the vault's manager may deposit. Some RPC providers restrict `getProgramAccounts`. |
+| `HedgeVault.getAll(connection, opt?)` | 1 `getProgramAccounts`, 1 batched mint read, 1 `GET /api/vaults/listed` | Every vault Hedgin lists as `VaultSummary[]`, sorted by id: not hidden and not in manager selection. Child vaults are left out. Throws `ApiError` 503 `ListingUnavailable` when the list cannot be read. Some RPC providers restrict `getProgramAccounts`. |
 | `HedgeVault.create(connection, vault, opt?)` | 3 batched reads | A loaded vault. `vault.state` is a `VaultDetail`, the same fields as the API's `getVault` except `unmanagedHoldings`. Throws `ApiError` 404 `NotFound` for an address that is not a vault of the program. |
 | `vault.refetchStates()` | 3 batched reads | Re-reads `vault.state`. |
 | `vault.getPositionByUser(user)` | 1 batched read | `shares` in the wallet and their `valueAtNav` (deposit-mint base units), plus the open `depositRequest` (`amount`) and `withdrawalRequest` (`shares`), or null. Each request has `state` (`pending`, `resolvable`, `frozen`), `cancellable`, `awaitingApproval`, `epoch` and `createdTs`. Shares escrowed by a pending withdrawal are in `withdrawalRequest.shares`, not `shares`. |
 
 `opt` takes `programId` (a non-production deployment), `jupiterApiKey` (token symbols from
-`api.jup.ag` instead of `lite-api.jup.ag`), `fetch`, and `maxPriorityFeeLamports`.
+`api.jup.ag` instead of `lite-api.jup.ag`), `fetch`, `maxPriorityFeeLamports`, and `baseUrl`
+(the Hedgin origin the listed vaults come from, default `https://hedgin.xyz`).
 
 ### Actions
 
@@ -133,7 +135,7 @@ Each takes one object with `user`, the wallet that signs and pays, and returns a
 
 | Method | Params | What it does |
 | --- | --- | --- |
-| `deposit` | `user`, `amount` | Queues a deposit. The tokens move into escrow until the next NAV. A SOL vault wraps whatever native SOL the user's wSOL account is short by, in the same transaction. |
+| `deposit` | `user`, `amount` | Queues a deposit into a vault Hedgin lists. The tokens move into escrow until the next NAV. A SOL vault wraps whatever native SOL the user's wSOL account is short by, in the same transaction. Any other vault throws `ApiError` 403 `VaultNotListed`, and an unreadable list throws 503 `ListingUnavailable`, both before simulating. The vault's own manager may deposit regardless. Withdrawals and cancels work on every vault, so nobody is locked in. |
 | `cancelDeposit` | `user` | Refunds the open deposit while it is still pending. |
 | `withdraw` | `user`, `shares` | Queues a withdrawal. The shares move into escrow until the next NAV. |
 | `cancelWithdrawal` | `user` | Returns the escrowed shares while the withdrawal is still pending. |

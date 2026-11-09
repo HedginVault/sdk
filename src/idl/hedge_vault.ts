@@ -151,6 +151,75 @@ export type HedgeVault = {
       "args": []
     },
     {
+      "name": "configAddRescueDelegate",
+      "discriminator": [
+        155,
+        235,
+        76,
+        202,
+        234,
+        0,
+        36,
+        166
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "delegateAuthority"
+        },
+        {
+          "name": "delegate",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "delegateAuthority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "expiresAt",
+          "type": "i64"
+        }
+      ]
+    },
+    {
       "name": "configClaimPlatformFee",
       "discriminator": [
         215,
@@ -487,33 +556,6 @@ export type HedgeVault = {
       "args": []
     },
     {
-      "name": "configPauseVault",
-      "discriminator": [
-        80,
-        68,
-        161,
-        225,
-        244,
-        48,
-        117,
-        125
-      ],
-      "accounts": [
-        {
-          "name": "guardian",
-          "signer": true
-        },
-        {
-          "name": "config"
-        },
-        {
-          "name": "vault",
-          "writable": true
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "configRecoverBurnedShares",
       "discriminator": [
         150,
@@ -654,6 +696,38 @@ export type HedgeVault = {
       "args": []
     },
     {
+      "name": "configRemoveRescueDelegate",
+      "discriminator": [
+        104,
+        174,
+        94,
+        21,
+        127,
+        12,
+        14,
+        161
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "delegate",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "configUpdate",
       "discriminator": [
         80,
@@ -688,6 +762,9 @@ export type HedgeVault = {
     },
     {
       "name": "configUpdateVaultStatus",
+      "docs": [
+        "The guardian may also sign, for an update that only tightens the vault."
+      ],
       "discriminator": [
         130,
         144,
@@ -700,7 +777,10 @@ export type HedgeVault = {
       ],
       "accounts": [
         {
-          "name": "admin",
+          "name": "authority",
+          "docs": [
+            "Config admin, or the guardian for an update that only tightens."
+          ],
           "signer": true
         },
         {
@@ -713,10 +793,10 @@ export type HedgeVault = {
       ],
       "args": [
         {
-          "name": "status",
+          "name": "args",
           "type": {
             "defined": {
-              "name": "vaultStatus"
+              "name": "configUpdateVaultStatusArgs"
             }
           }
         }
@@ -7836,19 +7916,6 @@ export type HedgeVault = {
       ]
     },
     {
-      "name": "vaultPaused",
-      "discriminator": [
-        198,
-        157,
-        22,
-        151,
-        68,
-        100,
-        162,
-        35
-      ]
-    },
-    {
       "name": "vaultUpdated",
       "discriminator": [
         93,
@@ -8470,6 +8537,26 @@ export type HedgeVault = {
       "code": 6105,
       "name": "managerNotPromoted",
       "msg": "Manager has not been promoted out of selection"
+    },
+    {
+      "code": 6106,
+      "name": "vaultFrozen",
+      "msg": "Vault is frozen, only its rescue delegate can act"
+    },
+    {
+      "code": 6107,
+      "name": "rescueDelegateInactive",
+      "msg": "Rescue delegate acts only while the vault is frozen"
+    },
+    {
+      "code": 6108,
+      "name": "rescueDelegateProtected",
+      "msg": "Rescue delegate is managed by the config admin"
+    },
+    {
+      "code": 6109,
+      "name": "guardianCannotLoosen",
+      "msg": "Guardian can only tighten a vault's status and flags"
     }
   ],
   "types": [
@@ -8873,6 +8960,42 @@ export type HedgeVault = {
                   "name": "protocolStatus"
                 }
               }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "configUpdateVaultStatusArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "status",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "vaultStatus"
+                }
+              }
+            }
+          },
+          {
+            "name": "depositPaused",
+            "type": {
+              "option": "bool"
+            }
+          },
+          {
+            "name": "withdrawalPaused",
+            "type": {
+              "option": "bool"
+            }
+          },
+          {
+            "name": "approvalRequired",
+            "type": {
+              "option": "bool"
             }
           }
         ]
@@ -12010,22 +12133,6 @@ export type HedgeVault = {
       }
     },
     {
-      "name": "vaultPaused",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "vault",
-            "type": "pubkey"
-          },
-          {
-            "name": "guardian",
-            "type": "pubkey"
-          }
-        ]
-      }
-    },
-    {
       "name": "vaultShareMetadataArgs",
       "type": {
         "kind": "struct",
@@ -12064,6 +12171,9 @@ export type HedgeVault = {
           },
           {
             "name": "reduceOnly"
+          },
+          {
+            "name": "frozen"
           }
         ]
       }
@@ -12101,16 +12211,6 @@ export type HedgeVault = {
             "name": "minWithdrawalShares",
             "type": {
               "option": "u64"
-            }
-          },
-          {
-            "name": "status",
-            "type": {
-              "option": {
-                "defined": {
-                  "name": "vaultStatus"
-                }
-              }
             }
           },
           {
@@ -12529,6 +12629,14 @@ export type HedgeVault = {
       "name": "delegatePhoenix",
       "type": "u64",
       "value": "4"
+    },
+    {
+      "name": "delegateRescue",
+      "docs": [
+        "Marks a rescue delegate: set only by the config admin, acts only while the vault is frozen."
+      ],
+      "type": "u64",
+      "value": "8"
     },
     {
       "name": "epochDuration",

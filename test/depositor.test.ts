@@ -229,6 +229,13 @@ describe("HedgeVault reads", () => {
     expect(calls).toEqual([`getProgramAccounts:${PROGRAM.toBase58()}`, "getMultipleAccountsInfo"]);
   });
 
+  it("decodes a frozen vault", async () => {
+    const accounts = await chain();
+    accounts.set(VAULT_1.toBase58(), account(PROGRAM, await encode("vault", vaultFields(1, { status: { frozen: {} } }))));
+    const { connection } = fakeConnection(accounts);
+    expect((await HedgeVault.create(connection, VAULT_1, { fetch: jupiterOk() })).state.status).toBe("frozen");
+  });
+
   it("reads a child vault by address, with no share symbol", async () => {
     const { connection } = fakeConnection(await chain());
     expect((await HedgeVault.create(connection, CHILD, { fetch: jupiterOk() })).state).toMatchObject({

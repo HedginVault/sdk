@@ -24,6 +24,10 @@ describe("read schemas", () => {
     expect(VaultDetailSchema.safeParse({ ...vaultDetail, status: "active" }).success).toBe(false);
   });
 
+  it("parses a frozen vault", () => {
+    expect(VaultDetailSchema.parse(viaJson({ ...vaultDetail, status: "frozen" })).status).toBe("frozen");
+  });
+
   it("accepts omitted unmanaged holdings but rejects malformed entries and null", () => {
     const { unmanagedHoldings, ...withoutUnmanagedHoldings } = vaultDetail;
     const fromApp = { ...withoutUnmanagedHoldings, depositLogo: null, depositPriceUsd: 1, metadata: null };

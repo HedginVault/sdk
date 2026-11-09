@@ -212,7 +212,7 @@ export const PoolInfoSchema = z.object({
 });
 export type PoolInfo = z.infer<typeof PoolInfoSchema>;
 
-const VaultStatusSchema = z.enum(["normal", "paused", "reduceOnly"]);
+const VaultStatusSchema = z.enum(["normal", "paused", "reduceOnly", "frozen"]);
 
 export const VaultDetailSchema = VaultSummarySchema.extend({
   id: U64String,

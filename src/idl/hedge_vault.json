@@ -145,6 +145,75 @@
       "args": []
     },
     {
+      "name": "config_add_rescue_delegate",
+      "discriminator": [
+        155,
+        235,
+        76,
+        202,
+        234,
+        0,
+        36,
+        166
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "delegate_authority"
+        },
+        {
+          "name": "delegate",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "delegate_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "expires_at",
+          "type": "i64"
+        }
+      ]
+    },
+    {
       "name": "config_claim_platform_fee",
       "discriminator": [
         215,
@@ -481,33 +550,6 @@
       "args": []
     },
     {
-      "name": "config_pause_vault",
-      "discriminator": [
-        80,
-        68,
-        161,
-        225,
-        244,
-        48,
-        117,
-        125
-      ],
-      "accounts": [
-        {
-          "name": "guardian",
-          "signer": true
-        },
-        {
-          "name": "config"
-        },
-        {
-          "name": "vault",
-          "writable": true
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "config_recover_burned_shares",
       "discriminator": [
         150,
@@ -648,6 +690,38 @@
       "args": []
     },
     {
+      "name": "config_remove_rescue_delegate",
+      "discriminator": [
+        104,
+        174,
+        94,
+        21,
+        127,
+        12,
+        14,
+        161
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "delegate",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "config_update",
       "discriminator": [
         80,
@@ -682,6 +756,9 @@
     },
     {
       "name": "config_update_vault_status",
+      "docs": [
+        "The guardian may also sign, for an update that only tightens the vault."
+      ],
       "discriminator": [
         130,
         144,
@@ -694,7 +771,10 @@
       ],
       "accounts": [
         {
-          "name": "admin",
+          "name": "authority",
+          "docs": [
+            "Config admin, or the guardian for an update that only tightens."
+          ],
           "signer": true
         },
         {
@@ -707,10 +787,10 @@
       ],
       "args": [
         {
-          "name": "status",
+          "name": "args",
           "type": {
             "defined": {
-              "name": "VaultStatus"
+              "name": "ConfigUpdateVaultStatusArgs"
             }
           }
         }
@@ -7830,19 +7910,6 @@
       ]
     },
     {
-      "name": "VaultPaused",
-      "discriminator": [
-        198,
-        157,
-        22,
-        151,
-        68,
-        100,
-        162,
-        35
-      ]
-    },
-    {
       "name": "VaultUpdated",
       "discriminator": [
         93,
@@ -8464,6 +8531,26 @@
       "code": 6105,
       "name": "ManagerNotPromoted",
       "msg": "Manager has not been promoted out of selection"
+    },
+    {
+      "code": 6106,
+      "name": "VaultFrozen",
+      "msg": "Vault is frozen, only its rescue delegate can act"
+    },
+    {
+      "code": 6107,
+      "name": "RescueDelegateInactive",
+      "msg": "Rescue delegate acts only while the vault is frozen"
+    },
+    {
+      "code": 6108,
+      "name": "RescueDelegateProtected",
+      "msg": "Rescue delegate is managed by the config admin"
+    },
+    {
+      "code": 6109,
+      "name": "GuardianCannotLoosen",
+      "msg": "Guardian can only tighten a vault's status and flags"
     }
   ],
   "types": [
@@ -8867,6 +8954,42 @@
                   "name": "ProtocolStatus"
                 }
               }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigUpdateVaultStatusArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "status",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "VaultStatus"
+                }
+              }
+            }
+          },
+          {
+            "name": "deposit_paused",
+            "type": {
+              "option": "bool"
+            }
+          },
+          {
+            "name": "withdrawal_paused",
+            "type": {
+              "option": "bool"
+            }
+          },
+          {
+            "name": "approval_required",
+            "type": {
+              "option": "bool"
             }
           }
         ]
@@ -12004,22 +12127,6 @@
       }
     },
     {
-      "name": "VaultPaused",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "vault",
-            "type": "pubkey"
-          },
-          {
-            "name": "guardian",
-            "type": "pubkey"
-          }
-        ]
-      }
-    },
-    {
       "name": "VaultShareMetadataArgs",
       "type": {
         "kind": "struct",
@@ -12058,6 +12165,9 @@
           },
           {
             "name": "ReduceOnly"
+          },
+          {
+            "name": "Frozen"
           }
         ]
       }
@@ -12095,16 +12205,6 @@
             "name": "min_withdrawal_shares",
             "type": {
               "option": "u64"
-            }
-          },
-          {
-            "name": "status",
-            "type": {
-              "option": {
-                "defined": {
-                  "name": "VaultStatus"
-                }
-              }
             }
           },
           {
@@ -12523,6 +12623,14 @@
       "name": "DELEGATE_PHOENIX",
       "type": "u64",
       "value": "4"
+    },
+    {
+      "name": "DELEGATE_RESCUE",
+      "docs": [
+        "Marks a rescue delegate: set only by the config admin, acts only while the vault is frozen."
+      ],
+      "type": "u64",
+      "value": "8"
     },
     {
       "name": "EPOCH_DURATION",

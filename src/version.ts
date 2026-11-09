@@ -1,5 +1,5 @@
 /** Must equal `package.json` `version`; `test/version.test.ts` fails the publish otherwise. */
-export const SDK_VERSION = "0.6.0";
+export const SDK_VERSION = "0.7.0";
 
 const parse = (version: string): [number, number, number] | undefined => {
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version.trim());

@@ -6,7 +6,7 @@ export type DecimalString = string;
 
 export type DlmmShape = "spot" | "curve" | "bidAsk";
 
-export type VaultStatus = "normal" | "paused" | "reduceOnly";
+export type VaultStatus = "normal" | "paused" | "reduceOnly" | "frozen";
 
 /**
  * The least a swap may return: the shown quote's output after its slippage, for the input it was
@@ -222,7 +222,6 @@ export type ActionRequest =
       depositCap?: BaseUnitString;
       minDeposit?: BaseUnitString;
       minWithdrawalShares?: BaseUnitString;
-      status?: VaultStatus;
       depositPaused?: boolean;
       withdrawalPaused?: boolean;
       approvalRequired?: boolean;

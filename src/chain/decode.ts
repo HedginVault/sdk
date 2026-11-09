@@ -22,7 +22,7 @@ const KNOWN_SYMBOLS: Record<string, string> = {
 
 const decodeName = (bytes: number[]) => new TextDecoder().decode(Uint8Array.from(bytes)).replace(/\0+$/, "");
 
-const STATUSES: Record<string, Status> = { normal: "normal", paused: "paused", reduceOnly: "reduceOnly" };
+const STATUSES: Record<string, Status> = { normal: "normal", paused: "paused", reduceOnly: "reduceOnly", frozen: "frozen" };
 
 function decodeStatus(s: object): Status {
   const key = Object.keys(s)[0] ?? "";

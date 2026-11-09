@@ -183,7 +183,7 @@ order (`sendConcurrently` groups, confirmation barriers) and `next` continuation
 | `phoenix/cancel` | `vault, symbol, orders` | `"all"`, or 1..20 `{ priceInTicks, orderSequenceNumber }` from `getPhoenix().openOrders`. |
 | `phoenix/sweep` | `vault` | Unwraps a queued Phoenix withdrawal into USDC. |
 | `vault/initialize` | `name, depositMint, performanceFeeBps, managementFeeBps, depositCap, minDeposit, minWithdrawalShares, approvalRequired?` | No `vault`. Needs a key not limited to specific vaults. A confirmed outcome carries the new address as `created.vault`. |
-| `vault/update` | `vault` and at least one of `performanceFeeBps, managementFeeBps, depositCap, minDeposit, minWithdrawalShares, status, depositPaused, withdrawalPaused, approvalRequired` | `approvalRequired` makes deposits and withdrawals wait for `deposit/approve` or `withdrawal/approve`. |
+| `vault/update` | `vault` and at least one of `performanceFeeBps, managementFeeBps, depositCap, minDeposit, minWithdrawalShares, depositPaused, withdrawalPaused, approvalRequired` | `approvalRequired` makes deposits and withdrawals wait for `deposit/approve` or `withdrawal/approve`. |
 | `vault/claim-fee` | `vault` | Mints the accrued manager fee shares to the manager. |
 | `vault/close` | `vault` | |
 | `deposit/approve` | `vault, depositor, amount` | Authority only. `amount` is the request amount you reviewed; the program refuses with `ApprovedAmountMismatch` if it changed. |

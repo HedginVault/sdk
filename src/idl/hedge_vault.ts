@@ -3601,6 +3601,2039 @@ export type HedgeVault = {
       ]
     },
     {
+      "name": "meteoraDlmmProAddLiquidity",
+      "discriminator": [
+        203,
+        57,
+        237,
+        25,
+        11,
+        182,
+        240,
+        52
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "strategy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategyX",
+          "docs": [
+            "Jupiter strategy tracking token X, `None` only when token X is the deposit mint."
+          ],
+          "optional": true
+        },
+        {
+          "name": "strategyY",
+          "docs": [
+            "Jupiter strategy tracking token Y, `None` only when token Y is the deposit mint."
+          ],
+          "optional": true
+        },
+        {
+          "name": "vaultTokenX",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "tokenXProgram"
+              },
+              {
+                "kind": "account",
+                "path": "tokenXMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "vaultTokenY",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "tokenYProgram"
+              },
+              {
+                "kind": "account",
+                "path": "tokenYMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "poolAuthority"
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "nftAccount"
+        },
+        {
+          "name": "tickArrayBitmapExtension",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "reserveX",
+          "writable": true
+        },
+        {
+          "name": "reserveY",
+          "writable": true
+        },
+        {
+          "name": "tokenXMint"
+        },
+        {
+          "name": "tokenYMint"
+        },
+        {
+          "name": "tokenXProgram"
+        },
+        {
+          "name": "tokenYProgram"
+        },
+        {
+          "name": "memoProgram"
+        },
+        {
+          "name": "eventAuthority"
+        },
+        {
+          "name": "dlmmProProgram",
+          "address": "dPro1D5wiqnGMH8vMDG23jh35btTHoWdyqXjqkqxe8n"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "delegate",
+          "docs": [
+            "Required when `authority` is a delegate rather than the vault authority."
+          ],
+          "optional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "parameters",
+          "type": {
+            "defined": {
+              "name": "addLiquidityByWeightParameters"
+            }
+          }
+        },
+        {
+          "name": "remainingAccountsInfo",
+          "type": {
+            "defined": {
+              "name": "dlmmProRemainingAccounts"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "meteoraDlmmProCancelLimitOrder",
+      "discriminator": [
+        69,
+        136,
+        12,
+        228,
+        60,
+        188,
+        53,
+        85
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "strategy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "limitOrder"
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategyX",
+          "docs": [
+            "Jupiter strategy tracking token X, `None` only when token X is the deposit mint."
+          ],
+          "optional": true
+        },
+        {
+          "name": "strategyY",
+          "docs": [
+            "Jupiter strategy tracking token Y, `None` only when token Y is the deposit mint."
+          ],
+          "optional": true
+        },
+        {
+          "name": "vaultTokenX",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "tokenXProgram"
+              },
+              {
+                "kind": "account",
+                "path": "tokenXMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "vaultTokenY",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "tokenYProgram"
+              },
+              {
+                "kind": "account",
+                "path": "tokenYMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "poolAuthority"
+        },
+        {
+          "name": "tickArrayBitmapExtension",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "reserveX",
+          "writable": true
+        },
+        {
+          "name": "reserveY",
+          "writable": true
+        },
+        {
+          "name": "tokenXMint"
+        },
+        {
+          "name": "tokenYMint"
+        },
+        {
+          "name": "limitOrder",
+          "writable": true
+        },
+        {
+          "name": "nftAccount"
+        },
+        {
+          "name": "tokenXProgram"
+        },
+        {
+          "name": "tokenYProgram"
+        },
+        {
+          "name": "memoProgram"
+        },
+        {
+          "name": "eventAuthority"
+        },
+        {
+          "name": "dlmmProProgram",
+          "address": "dPro1D5wiqnGMH8vMDG23jh35btTHoWdyqXjqkqxe8n"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "delegate",
+          "docs": [
+            "Required when `authority` is a delegate rather than the vault authority."
+          ],
+          "optional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "parameters",
+          "type": {
+            "defined": {
+              "name": "cancelLimitOrderParameters"
+            }
+          }
+        },
+        {
+          "name": "remainingAccountsInfo",
+          "type": {
+            "defined": {
+              "name": "dlmmProRemainingAccounts"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "meteoraDlmmProClaimFee",
+      "discriminator": [
+        252,
+        206,
+        75,
+        112,
+        180,
+        194,
+        209,
+        44
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "strategy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategyX",
+          "docs": [
+            "Jupiter strategy tracking token X, `None` only when token X is the deposit mint."
+          ],
+          "optional": true
+        },
+        {
+          "name": "strategyY",
+          "docs": [
+            "Jupiter strategy tracking token Y, `None` only when token Y is the deposit mint."
+          ],
+          "optional": true
+        },
+        {
+          "name": "vaultTokenX",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "tokenXProgram"
+              },
+              {
+                "kind": "account",
+                "path": "tokenXMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "vaultTokenY",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "tokenYProgram"
+              },
+              {
+                "kind": "account",
+                "path": "tokenYMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "poolAuthority"
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "nftAccount"
+        },
+        {
+          "name": "tickArrayBitmapExtension",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "reserveX",
+          "writable": true
+        },
+        {
+          "name": "reserveY",
+          "writable": true
+        },
+        {
+          "name": "tokenXMint"
+        },
+        {
+          "name": "tokenYMint"
+        },
+        {
+          "name": "tokenXProgram"
+        },
+        {
+          "name": "tokenYProgram"
+        },
+        {
+          "name": "memoProgram"
+        },
+        {
+          "name": "eventAuthority"
+        },
+        {
+          "name": "dlmmProProgram",
+          "address": "dPro1D5wiqnGMH8vMDG23jh35btTHoWdyqXjqkqxe8n"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "delegate",
+          "docs": [
+            "Required when `authority` is a delegate rather than the vault authority."
+          ],
+          "optional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "minAmountX",
+          "type": "u64"
+        },
+        {
+          "name": "minAmountY",
+          "type": "u64"
+        },
+        {
+          "name": "remainingAccountsInfo",
+          "type": {
+            "defined": {
+              "name": "dlmmProRemainingAccounts"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "meteoraDlmmProClaimReward",
+      "docs": [
+        "Claims one reward slot of a liquidity-mining pool position into the vault."
+      ],
+      "discriminator": [
+        128,
+        131,
+        253,
+        244,
+        148,
+        81,
+        179,
+        178
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "strategy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool"
+        },
+        {
+          "name": "poolAuthority"
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "nftAccount"
+        },
+        {
+          "name": "rewardVault",
+          "writable": true
+        },
+        {
+          "name": "rewardMint"
+        },
+        {
+          "name": "vaultRewardToken",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "tokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "rewardMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "tokenProgram"
+        },
+        {
+          "name": "memoProgram"
+        },
+        {
+          "name": "eventAuthority"
+        },
+        {
+          "name": "dlmmProProgram",
+          "address": "dPro1D5wiqnGMH8vMDG23jh35btTHoWdyqXjqkqxe8n"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "delegate",
+          "docs": [
+            "Required when `authority` is a delegate rather than the vault authority."
+          ],
+          "optional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "rewardIndex",
+          "type": "u8"
+        },
+        {
+          "name": "minAmount",
+          "type": "u64"
+        },
+        {
+          "name": "remainingAccountsInfo",
+          "type": {
+            "defined": {
+              "name": "dlmmProRemainingAccounts"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "meteoraDlmmProClose",
+      "docs": [
+        "Closes an empty DLMM Pro position or limit order and its strategy record."
+      ],
+      "discriminator": [
+        171,
+        191,
+        247,
+        71,
+        195,
+        130,
+        145,
+        57
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "strategy",
+          "docs": [
+            "Closed in the handler, its rent goes to `Strategy::rent_receiver`."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "target"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool"
+        },
+        {
+          "name": "poolAuthority"
+        },
+        {
+          "name": "target",
+          "writable": true
+        },
+        {
+          "name": "nftMint",
+          "writable": true
+        },
+        {
+          "name": "nftAccount",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "eventAuthority"
+        },
+        {
+          "name": "dlmmProProgram",
+          "address": "dPro1D5wiqnGMH8vMDG23jh35btTHoWdyqXjqkqxe8n"
+        },
+        {
+          "name": "delegate",
+          "docs": [
+            "Required when `authority` is a delegate rather than the vault authority."
+          ],
+          "optional": true
+        },
+        {
+          "name": "rentPayer",
+          "writable": true,
+          "optional": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "meteoraDlmmProOpenLimitOrder",
+      "discriminator": [
+        36,
+        174,
+        251,
+        188,
+        213,
+        172,
+        133,
+        25
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "strategy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "limitOrder"
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategyX",
+          "docs": [
+            "Jupiter strategy tracking token X, `None` only when token X is the deposit mint."
+          ],
+          "optional": true
+        },
+        {
+          "name": "strategyY",
+          "docs": [
+            "Jupiter strategy tracking token Y, `None` only when token Y is the deposit mint."
+          ],
+          "optional": true
+        },
+        {
+          "name": "vaultToken",
+          "docs": [
+            "Token the order sells, token X for an ask and token Y for a bid."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "tokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "tokenMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "poolAuthority"
+        },
+        {
+          "name": "nftMint",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "nftAccount",
+          "writable": true
+        },
+        {
+          "name": "tickArrayBitmapExtension",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "reserve",
+          "writable": true
+        },
+        {
+          "name": "tokenMint"
+        },
+        {
+          "name": "limitOrder",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "eventAuthority"
+        },
+        {
+          "name": "dlmmProProgram",
+          "address": "dPro1D5wiqnGMH8vMDG23jh35btTHoWdyqXjqkqxe8n"
+        },
+        {
+          "name": "delegate",
+          "docs": [
+            "Required when `authority` is a delegate rather than the vault authority."
+          ],
+          "optional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "parameters",
+          "type": {
+            "defined": {
+              "name": "openLimitOrderParameters"
+            }
+          }
+        },
+        {
+          "name": "remainingAccountsInfo",
+          "type": {
+            "defined": {
+              "name": "dlmmProRemainingAccounts"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "meteoraDlmmProOpenPosition",
+      "discriminator": [
+        158,
+        184,
+        57,
+        5,
+        95,
+        68,
+        74,
+        57
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "strategy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategyX",
+          "docs": [
+            "Jupiter strategy tracking token X, `None` only when token X is the deposit mint."
+          ],
+          "optional": true
+        },
+        {
+          "name": "strategyY",
+          "docs": [
+            "Jupiter strategy tracking token Y, `None` only when token Y is the deposit mint."
+          ],
+          "optional": true
+        },
+        {
+          "name": "pool",
+          "docs": [
+            "DLMM Pro pool, read for the pair mints"
+          ]
+        },
+        {
+          "name": "poolAuthority"
+        },
+        {
+          "name": "nftMint",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "nftAccount",
+          "writable": true
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "eventAuthority"
+        },
+        {
+          "name": "dlmmProProgram",
+          "address": "dPro1D5wiqnGMH8vMDG23jh35btTHoWdyqXjqkqxe8n"
+        },
+        {
+          "name": "delegate",
+          "docs": [
+            "Required when `authority` is a delegate rather than the vault authority."
+          ],
+          "optional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "tickRanges",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "tickRange"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "meteoraDlmmProRefreshFees",
+      "discriminator": [
+        31,
+        63,
+        248,
+        199,
+        16,
+        242,
+        46,
+        157
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "strategy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategyX",
+          "docs": [
+            "Jupiter strategy tracking token X, `None` only when token X is the deposit mint."
+          ],
+          "optional": true
+        },
+        {
+          "name": "strategyY",
+          "docs": [
+            "Jupiter strategy tracking token Y, `None` only when token Y is the deposit mint."
+          ],
+          "optional": true
+        },
+        {
+          "name": "vaultTokenX",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "tokenXProgram"
+              },
+              {
+                "kind": "account",
+                "path": "tokenXMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "vaultTokenY",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "tokenYProgram"
+              },
+              {
+                "kind": "account",
+                "path": "tokenYMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "poolAuthority"
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "nftAccount"
+        },
+        {
+          "name": "tickArrayBitmapExtension",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "reserveX",
+          "writable": true
+        },
+        {
+          "name": "reserveY",
+          "writable": true
+        },
+        {
+          "name": "tokenXMint"
+        },
+        {
+          "name": "tokenYMint"
+        },
+        {
+          "name": "tokenXProgram"
+        },
+        {
+          "name": "tokenYProgram"
+        },
+        {
+          "name": "memoProgram"
+        },
+        {
+          "name": "eventAuthority"
+        },
+        {
+          "name": "dlmmProProgram",
+          "address": "dPro1D5wiqnGMH8vMDG23jh35btTHoWdyqXjqkqxe8n"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "delegate",
+          "docs": [
+            "Required when `authority` is a delegate rather than the vault authority."
+          ],
+          "optional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "bitmap",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "meteoraDlmmProRemoveLiquidity",
+      "discriminator": [
+        51,
+        49,
+        29,
+        125,
+        197,
+        236,
+        119,
+        83
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "strategy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategyX",
+          "docs": [
+            "Jupiter strategy tracking token X, `None` only when token X is the deposit mint."
+          ],
+          "optional": true
+        },
+        {
+          "name": "strategyY",
+          "docs": [
+            "Jupiter strategy tracking token Y, `None` only when token Y is the deposit mint."
+          ],
+          "optional": true
+        },
+        {
+          "name": "vaultTokenX",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "tokenXProgram"
+              },
+              {
+                "kind": "account",
+                "path": "tokenXMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "vaultTokenY",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "tokenYProgram"
+              },
+              {
+                "kind": "account",
+                "path": "tokenYMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "poolAuthority"
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "nftAccount"
+        },
+        {
+          "name": "tickArrayBitmapExtension",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "reserveX",
+          "writable": true
+        },
+        {
+          "name": "reserveY",
+          "writable": true
+        },
+        {
+          "name": "tokenXMint"
+        },
+        {
+          "name": "tokenYMint"
+        },
+        {
+          "name": "tokenXProgram"
+        },
+        {
+          "name": "tokenYProgram"
+        },
+        {
+          "name": "memoProgram"
+        },
+        {
+          "name": "eventAuthority"
+        },
+        {
+          "name": "dlmmProProgram",
+          "address": "dPro1D5wiqnGMH8vMDG23jh35btTHoWdyqXjqkqxe8n"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "delegate",
+          "docs": [
+            "Required when `authority` is a delegate rather than the vault authority."
+          ],
+          "optional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "parameters",
+          "type": {
+            "defined": {
+              "name": "removeLiquidityByBpsParameters"
+            }
+          }
+        },
+        {
+          "name": "remainingAccountsInfo",
+          "type": {
+            "defined": {
+              "name": "dlmmProRemainingAccounts"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "meteoraDlmmProSetDelegate",
+      "docs": [
+        "Sets (`wallet` passed) or revokes (no `wallet`, `permission` 0) the DLMM Pro native delegate",
+        "of a vault position or limit order."
+      ],
+      "discriminator": [
+        204,
+        186,
+        99,
+        109,
+        10,
+        222,
+        125,
+        220
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "strategy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "target"
+              }
+            ]
+          }
+        },
+        {
+          "name": "target",
+          "writable": true
+        },
+        {
+          "name": "nftAccount",
+          "docs": [
+            "program checks it holds the target's NFT"
+          ],
+          "writable": true
+        },
+        {
+          "name": "wallet",
+          "optional": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "eventAuthority"
+        },
+        {
+          "name": "dlmmProProgram",
+          "address": "dPro1D5wiqnGMH8vMDG23jh35btTHoWdyqXjqkqxe8n"
+        },
+        {
+          "name": "delegate",
+          "docs": [
+            "Only a revoke accepts a delegate; a grant is the vault authority's call."
+          ],
+          "optional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "permission",
+          "type": "u32"
+        }
+      ]
+    },
+    {
       "name": "meteoraDlmmRemoveLiquidity",
       "discriminator": [
         185,
@@ -6011,6 +8044,9 @@ export type HedgeVault = {
         },
         {
           "name": "strategy",
+          "docs": [
+            "Closed in the handler, its rent goes to `Strategy::rent_receiver`."
+          ],
           "writable": true
         },
         {
@@ -6022,6 +8058,11 @@ export type HedgeVault = {
           "docs": [
             "Required when `authority` is a delegate rather than the vault authority."
           ],
+          "optional": true
+        },
+        {
+          "name": "rentPayer",
+          "writable": true,
           "optional": true
         }
       ],
@@ -7225,6 +9266,19 @@ export type HedgeVault = {
       ]
     },
     {
+      "name": "pool",
+      "discriminator": [
+        241,
+        154,
+        109,
+        4,
+        17,
+        177,
+        109,
+        188
+      ]
+    },
+    {
       "name": "positionV2",
       "discriminator": [
         117,
@@ -7666,6 +9720,32 @@ export type HedgeVault = {
         30,
         243,
         144
+      ]
+    },
+    {
+      "name": "meteoraDlmmProDelegateSet",
+      "discriminator": [
+        85,
+        209,
+        99,
+        82,
+        248,
+        116,
+        118,
+        79
+      ]
+    },
+    {
+      "name": "meteoraDlmmProRewardClaimed",
+      "discriminator": [
+        61,
+        194,
+        187,
+        122,
+        204,
+        44,
+        201,
+        204
       ]
     },
     {
@@ -8557,6 +10637,26 @@ export type HedgeVault = {
       "code": 6109,
       "name": "guardianCannotLoosen",
       "msg": "Guardian can only tighten a vault's status and flags"
+    },
+    {
+      "code": 6110,
+      "name": "invalidPoolMint",
+      "msg": "Token mint does not match the DLMM Pro pool"
+    },
+    {
+      "code": 6111,
+      "name": "positionNotEmpty",
+      "msg": "Position still holds liquidity, remove it first"
+    },
+    {
+      "code": 6112,
+      "name": "invalidDlmmProDelegate",
+      "msg": "DLMM Pro delegate needs a wallet and allowed permissions, or neither to revoke"
+    },
+    {
+      "code": 6113,
+      "name": "invalidRentPayer",
+      "msg": "Rent payer does not match the account that opened the strategy"
     }
   ],
   "types": [
@@ -8582,6 +10682,40 @@ export type HedgeVault = {
           },
           {
             "name": "transferHookReferral"
+          }
+        ]
+      }
+    },
+    {
+      "name": "addLiquidityByWeightParameters",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "maxAmountX",
+            "type": "u64"
+          },
+          {
+            "name": "maxAmountY",
+            "type": "u64"
+          },
+          {
+            "name": "expectedLayoutVersion",
+            "type": {
+              "option": "u16"
+            }
+          },
+          {
+            "name": "bitmap",
+            "type": "u64"
+          },
+          {
+            "name": "multiplier",
+            "type": "u128"
+          },
+          {
+            "name": "liquidities",
+            "type": "bytes"
           }
         ]
       }
@@ -8614,6 +10748,31 @@ export type HedgeVault = {
           {
             "name": "pendingAdmin",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "baseFeeConfig",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "baseFeeMode",
+            "type": "u8"
+          },
+          {
+            "name": "data",
+            "type": {
+              "array": [
+                "u8",
+                31
+              ]
+            }
           }
         ]
       }
@@ -8653,6 +10812,28 @@ export type HedgeVault = {
           },
           {
             "name": "shares",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cancelLimitOrderParameters",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tickIds",
+            "type": {
+              "vec": "i32"
+            }
+          },
+          {
+            "name": "minAmountX",
+            "type": "u64"
+          },
+          {
+            "name": "minAmountY",
             "type": "u64"
           }
         ]
@@ -9367,6 +11548,120 @@ export type HedgeVault = {
       }
     },
     {
+      "name": "dlmmProHook",
+      "docs": [
+        "Transfer hook accounts of a token, in DLMM Pro's order."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "transferHookX"
+          },
+          {
+            "name": "transferHookY"
+          },
+          {
+            "name": "transferHookReferral"
+          },
+          {
+            "name": "transferHookReward"
+          }
+        ]
+      }
+    },
+    {
+      "name": "dlmmProHookSlice",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "accountsType",
+            "type": {
+              "defined": {
+                "name": "dlmmProHook"
+              }
+            }
+          },
+          {
+            "name": "length",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "dlmmProRemainingAccounts",
+      "docs": [
+        "DLMM Pro's `RemainingAccountsInfo` under its own name: the DLMM IDL already has a type of that",
+        "name, and a second one would rename the existing type in this program's IDL."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slices",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "dlmmProHookSlice"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "dynamicFeeConfig",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "maxVolatilityAccumulator",
+            "type": "u32"
+          },
+          {
+            "name": "variableFeeControl",
+            "type": "u32"
+          },
+          {
+            "name": "filterPeriod",
+            "type": "u16"
+          },
+          {
+            "name": "decayPeriod",
+            "type": "u16"
+          },
+          {
+            "name": "reductionFactor",
+            "type": "u16"
+          },
+          {
+            "name": "minDeltaTickForSignificantSwap",
+            "type": "u16"
+          },
+          {
+            "name": "initialized",
+            "type": "u8"
+          },
+          {
+            "name": "padding0",
+            "type": {
+              "array": [
+                "u8",
+                15
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "escrowClosed",
       "type": {
         "kind": "struct",
@@ -9509,6 +11804,34 @@ export type HedgeVault = {
           {
             "name": "amount",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "feeConfig",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "baseFee",
+            "type": {
+              "defined": {
+                "name": "baseFeeConfig"
+              }
+            }
+          },
+          {
+            "name": "dynamicFee",
+            "type": {
+              "defined": {
+                "name": "dynamicFeeConfig"
+              }
+            }
           }
         ]
       }
@@ -10160,6 +12483,81 @@ export type HedgeVault = {
       }
     },
     {
+      "name": "meteoraDlmmProDelegateSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "strategy",
+            "type": "pubkey"
+          },
+          {
+            "name": "target",
+            "docs": [
+              "The position or limit order."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "wallet",
+            "docs": [
+              "`None` when the delegate was revoked."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "permission",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "meteoraDlmmProRewardClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "strategy",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "strategyId",
+            "type": "u32"
+          },
+          {
+            "name": "rewardIndex",
+            "type": "u8"
+          },
+          {
+            "name": "rewardMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "Reward received by the vault."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "meteoraDlmmRemoveLiquidityParams",
       "type": {
         "kind": "struct",
@@ -10218,6 +12616,42 @@ export type HedgeVault = {
           {
             "name": "overridden",
             "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "openLimitOrderParameters",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "isAskSide",
+            "type": "bool"
+          },
+          {
+            "name": "maxAmount",
+            "type": "u64"
+          },
+          {
+            "name": "relativeTick",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "relativeTick"
+                }
+              }
+            }
+          },
+          {
+            "name": "ticks",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "tickLimitOrderAmount"
+                }
+              }
+            }
           }
         ]
       }
@@ -10966,6 +13400,198 @@ export type HedgeVault = {
       }
     },
     {
+      "name": "pool",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tokenXMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "tokenYMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "reserveX",
+            "type": "pubkey"
+          },
+          {
+            "name": "reserveY",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "feeConfig",
+            "type": {
+              "defined": {
+                "name": "feeConfig"
+              }
+            }
+          },
+          {
+            "name": "variableFee",
+            "type": {
+              "defined": {
+                "name": "variableFee"
+              }
+            }
+          },
+          {
+            "name": "poolPartner",
+            "type": {
+              "defined": {
+                "name": "poolPartner"
+              }
+            }
+          },
+          {
+            "name": "liquidity",
+            "type": "u128"
+          },
+          {
+            "name": "initSqrtPrice",
+            "type": "u128"
+          },
+          {
+            "name": "sqrtPrice",
+            "type": "u128"
+          },
+          {
+            "name": "feeGrowthGlobalX",
+            "type": "u128"
+          },
+          {
+            "name": "feeGrowthGlobalY",
+            "type": "u128"
+          },
+          {
+            "name": "tickArrayBitmap",
+            "type": {
+              "array": [
+                "u64",
+                16
+              ]
+            }
+          },
+          {
+            "name": "activationPoint",
+            "type": "u64"
+          },
+          {
+            "name": "protocolFeeX",
+            "type": "u64"
+          },
+          {
+            "name": "protocolFeeY",
+            "type": "u64"
+          },
+          {
+            "name": "tickCurrentId",
+            "type": "i32"
+          },
+          {
+            "name": "tickSpacing",
+            "type": "u16"
+          },
+          {
+            "name": "poolStatus",
+            "type": "u16"
+          },
+          {
+            "name": "partnerFeeBps",
+            "type": "u16"
+          },
+          {
+            "name": "poolType",
+            "type": "u8"
+          },
+          {
+            "name": "tokenXFlag",
+            "type": "u8"
+          },
+          {
+            "name": "tokenYFlag",
+            "type": "u8"
+          },
+          {
+            "name": "activationType",
+            "type": "u8"
+          },
+          {
+            "name": "collectFeeMode",
+            "type": "u8"
+          },
+          {
+            "name": "extensions",
+            "type": "u8"
+          },
+          {
+            "name": "isBitmapExtensionInitialized",
+            "type": "u8"
+          },
+          {
+            "name": "padding0",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          },
+          {
+            "name": "padding1",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "padding2",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "poolPartner",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "partner",
+            "type": "pubkey"
+          },
+          {
+            "name": "pendingFeeX",
+            "type": "u64"
+          },
+          {
+            "name": "pendingFeeY",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "positionV2",
       "serialization": "bytemuck",
       "repr": {
@@ -11151,6 +13777,22 @@ export type HedgeVault = {
       }
     },
     {
+      "name": "relativeTick",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "spacingAlignedMinTickId",
+            "type": "i32"
+          },
+          {
+            "name": "spacingAlignedMaxTickId",
+            "type": "i32"
+          }
+        ]
+      }
+    },
+    {
       "name": "remainingAccountsInfo",
       "type": {
         "kind": "struct",
@@ -11184,6 +13826,38 @@ export type HedgeVault = {
           {
             "name": "length",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "removeLiquidityByBpsParameters",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "minAmountX",
+            "type": "u64"
+          },
+          {
+            "name": "minAmountY",
+            "type": "u64"
+          },
+          {
+            "name": "expectedLayoutVersion",
+            "type": {
+              "option": "u16"
+            }
+          },
+          {
+            "name": "bps",
+            "type": "u16"
+          },
+          {
+            "name": "bitmap",
+            "type": {
+              "option": "u64"
+            }
           }
         ]
       }
@@ -11436,16 +14110,13 @@ export type HedgeVault = {
             }
           },
           {
-            "name": "reserved",
+            "name": "rentPayer",
             "docs": [
-              "Reserved for future fields, the enum has to stay last."
+              "The signer that paid the rent to open the strategy, and gets it back on close. Default for a",
+              "strategy opened before it was recorded, whose rent goes to the closing signer. Takes the",
+              "former 32 reserved bytes, the enum has to stay last."
             ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            "type": "pubkey"
           },
           {
             "name": "strategyType",
@@ -11587,6 +14258,38 @@ export type HedgeVault = {
       }
     },
     {
+      "name": "tickLimitOrderAmount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "id",
+            "type": "i32"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "tickRange",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tickLowerId",
+            "type": "i32"
+          },
+          {
+            "name": "tickUpperId",
+            "type": "i32"
+          }
+        ]
+      }
+    },
+    {
       "name": "userRewardInfo",
       "serialization": "bytemuck",
       "repr": {
@@ -11612,6 +14315,42 @@ export type HedgeVault = {
                 2
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "variableFee",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "sqrtPriceReference",
+            "type": "u128"
+          },
+          {
+            "name": "lastSignificantSwapTimestamp",
+            "type": "u64"
+          },
+          {
+            "name": "lastReferenceTimestamp",
+            "type": "u64"
+          },
+          {
+            "name": "volatilityAccumulator",
+            "type": "u32"
+          },
+          {
+            "name": "volatilityReference",
+            "type": "u32"
+          },
+          {
+            "name": "padding0",
+            "type": "u64"
           }
         ]
       }
@@ -12576,6 +15315,24 @@ export type HedgeVault = {
           },
           {
             "name": "meteoraDlmmLimitOrder",
+            "fields": [
+              {
+                "name": "limitOrder",
+                "type": "pubkey"
+              }
+            ]
+          },
+          {
+            "name": "meteoraDlmmPro",
+            "fields": [
+              {
+                "name": "position",
+                "type": "pubkey"
+              }
+            ]
+          },
+          {
+            "name": "meteoraDlmmProLimitOrder",
             "fields": [
               {
                 "name": "limitOrder",
